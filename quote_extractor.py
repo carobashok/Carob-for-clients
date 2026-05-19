@@ -201,10 +201,13 @@ def generate_quote_excel(email: dict, fields: dict, folder_url: str = "") -> byt
             wo["N3"] = fields.get("phone") or ""           # Phone     → Fallow up F3
             wo["N4"] = fields.get("customer_email") or ""  # Mail ID   → Fallow up G3
 
-        # Fill Fallow up Link column I3 with Google Drive folder URL
+        # Fill Fallow up Link column I3 with clickable hyperlink
         if "Fallow up" in wb.sheetnames and folder_url:
+            from openpyxl.styles import Font as XLFont
             fu = wb["Fallow up"]
-            fu["I3"] = folder_url
+            fu["I3"] = "Open Folder"
+            fu["I3"].hyperlink = folder_url
+            fu["I3"].font = XLFont(color="0563C1", underline="single", name="Arial", size=10)
 
         # Save to bytes
         buf = io.BytesIO()
