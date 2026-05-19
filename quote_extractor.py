@@ -170,27 +170,27 @@ def generate_quote_excel(email: dict, fields: dict) -> bytes:
         if "Qtn_table1" in wb.sheetnames:
             ws = wb["Qtn_table1"]
 
-            # Mail Date — L4
+            # Mail Date — L4 (not merged)
             ws["L4"] = datetime.now().strftime("%d-%b-%Y")
 
-            # Mail ID (customer email) — L6
+            # Mail ID (customer email) — L6 (not merged)
             ws["L6"] = fields.get("customer_email") or ""
 
-            # Company Name — L8
-            ws["L8"] = fields.get("company_name") or fields.get("customer_name") or ""
+            # Company Name — K8 (K8:M8 is merged, write to top-left K8)
+            ws["K8"] = fields.get("company_name") or fields.get("customer_name") or ""
 
-            # Address (customer location) — L10
+            # Address — L10 (not merged)
             ws["L10"] = fields.get("location") or ""
 
-            # Contact Person Name — L15
+            # Contact Person Name — L15 (not merged)
             ws["L15"] = fields.get("customer_name") or ""
 
-            # Phone Numbers — L17
+            # Phone Numbers — L17 (not merged)
             ws["L17"] = fields.get("phone") or ""
 
-            # Quote To (left side customer block) — C9
-            customer_name    = fields.get("customer_name") or ""
-            company_name     = fields.get("company_name") or ""
+            # Quote To left side — C9 (K9:O9 merged, C9 is separate)
+            customer_name = fields.get("customer_name") or ""
+            company_name  = fields.get("company_name") or ""
             ws["C9"]  = company_name or customer_name
             ws["C10"] = fields.get("location") or ""
 
