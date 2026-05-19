@@ -194,6 +194,13 @@ def generate_quote_excel(email: dict, fields: dict) -> bytes:
             ws["C9"]  = company_name or customer_name
             ws["C10"] = fields.get("location") or ""
 
+        # Also fill WORK OUT sheet — feeds into Fallow up sheet via formulas
+        if "WORK OUT" in wb.sheetnames:
+            wo = wb["WORK OUT"]
+            wo["N2"] = fields.get("customer_name") or ""   # Kind Attn → Fallow up E3
+            wo["N3"] = fields.get("phone") or ""           # Phone     → Fallow up F3
+            wo["N4"] = fields.get("customer_email") or ""  # Mail ID   → Fallow up G3
+
         # Save to bytes
         buf = io.BytesIO()
         wb.save(buf)
