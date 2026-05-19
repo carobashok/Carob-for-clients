@@ -88,17 +88,26 @@ def get_supabase() -> Client:
 
 def get_schema() -> str:
     """Return schema name from secrets. Defaults to 'public'."""
-    return st.secrets.get("SCHEMA", "public")
+    try:
+        return st.secrets["SCHEMA"]
+    except Exception:
+        return "public"
 
 
 def get_drive_folder_id() -> str:
     """Return Google Drive parent folder ID from secrets."""
-    return st.secrets.get("GDRIVE_FOLDER_ID", "")
+    try:
+        return st.secrets["GDRIVE_FOLDER_ID"]
+    except Exception:
+        return ""
 
 
 def get_app_name() -> str:
     """Return app display name from secrets."""
-    return st.secrets.get("APP_NAME", "Carob Technologies")
+    try:
+        return st.secrets["APP_NAME"]
+    except Exception:
+        return "Carob Technologies"
 
 
 # ── Google Drive ──────────────────────────────────────────────────────────────
@@ -666,6 +675,12 @@ st.set_page_config(
 
 st.title("📬 Quote Request Extractor")
 st.caption(f"{get_app_name()} · Gmail → Claude → Supabase")
+
+# DEBUG — remove after testing
+with st.expander("🔧 Debug info"):
+    st.write(f"SCHEMA: {get_schema()}")
+    st.write(f"APP_NAME: {get_app_name()}")
+    st.write(f"GDRIVE_FOLDER_ID: {get_drive_folder_id()}")
 
 tab_inbox, tab_quotes, tab_analytics = st.tabs(["📬 Inbox", "📋 Quote Requests", "📊 Analytics"])
 
