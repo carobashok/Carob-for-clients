@@ -158,18 +158,10 @@ def generate_quote_excel(email: dict, fields: dict) -> bytes:
     Fill customer details into template.xltx if available,
     otherwise generate a simple summary Excel. Returns bytes.
     """
-    # Try multiple possible paths for the template
+    # Find template file — any .xltx in current directory
     import glob
-    possible_paths = [
-        "template.xltx",
-        "./template.xltx",
-        os.path.join(os.path.dirname(__file__), "template.xltx"),
-    ]
-    template_path = None
-    for p in possible_paths:
-        if os.path.exists(p):
-            template_path = p
-            break
+    xltx_files = glob.glob("*.xltx")
+    template_path = xltx_files[0] if xltx_files else None
 
     if template_path:
         # Load the customer template and fill WORK OUT sheet
