@@ -153,7 +153,7 @@ def upload_bytes_to_drive(drive_service, folder_id: str, filename: str, data: by
     drive_service.files().create(body=meta, media_body=media, fields="id").execute()
 
 
-def generate_quote_excel(email: dict, fields: dict) -> bytes:
+def generate_quote_excel(email: dict, fields: dict, folder_url: str = "") -> bytes:
     """
     Fill customer details into template.xltx if available,
     otherwise generate a simple summary Excel. Returns bytes.
@@ -201,6 +201,11 @@ def generate_quote_excel(email: dict, fields: dict) -> bytes:
             wo["N3"] = fields.get("phone") or ""           # Phone     → Fallow up F3
             wo["N4"] = fields.get("customer_email") or ""  # Mail ID   → Fallow up G3
 
+        # Fill Fallow up Link column I3 with Google Drive folder URL
+        if "Fallow up" in wb.sheetnames and folder_url:
+            fu = wb["Fallow up"]
+            fu["I3"] = folder_url
+
         # Save to bytes
         buf = io.BytesIO()
         wb.save(buf)
@@ -247,7 +252,7 @@ def save_to_drive(service, email: dict, fields: dict) -> tuple[str, int]:
         folder_id, folder_url = create_drive_folder(drive_service, folder_name)
 
         # Upload Excel summary
-        excel_bytes = generate_quote_excel(email, fields)
+        excel_bytes = generate_quote_excel(email, fields, folder_url)
         upload_bytes_to_drive(drive_service, folder_id, "Quote_Template.xlsx", excel_bytes,
                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
