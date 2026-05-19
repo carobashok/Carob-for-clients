@@ -158,9 +158,20 @@ def generate_quote_excel(email: dict, fields: dict) -> bytes:
     Fill customer details into template.xltx if available,
     otherwise generate a simple summary Excel. Returns bytes.
     """
-    template_path = "template.xltx"
+    # Try multiple possible paths for the template
+    import glob
+    possible_paths = [
+        "template.xltx",
+        "./template.xltx",
+        os.path.join(os.path.dirname(__file__), "template.xltx"),
+    ]
+    template_path = None
+    for p in possible_paths:
+        if os.path.exists(p):
+            template_path = p
+            break
 
-    if os.path.exists(template_path):
+    if template_path:
         # Load the customer template and fill WORK OUT sheet
         wb = openpyxl.load_workbook(template_path)
 
@@ -661,6 +672,10 @@ with st.expander("🔧 Debug info"):
     st.write(f"SCHEMA: {get_schema()}")
     st.write(f"APP_NAME: {get_app_name()}")
     st.write(f"GDRIVE_FOLDER_ID: {get_drive_folder_id()}")
+    st.write(f"CWD: {os.getcwd()}")
+    st.write(f"Files in CWD: {os.listdir('.')}")
+    template_exists = os.path.exists("template.xltx")
+    st.write(f"template.xltx found: {template_exists}")
 
 tab_inbox, tab_quotes, tab_analytics = st.tabs(["📬 Inbox", "📋 Quote Requests", "📊 Analytics"])
 
