@@ -602,10 +602,36 @@ def sync_sent_replies(service, supabase: Client) -> int:
             }
             if att_uploaded:
                 update_data["attachment_count"] = (row.get("attachment_count") or 0) + att_uploaded
+
+            # Auto-set status to quoted if still new
+            current_status = row.get("status", "new")
+            if current_status == "new":
+                update_data["status"] = "quoted"
+
             supabase.schema(get_schema()).table("quote_requests").update(update_data).eq("id", row["id"]).execute()
+
+            # Append to Followup Tracker — only on first reply (reply_count was 0)
+            if (row.get("reply_count") or 0) == 0:
+                try:
+                    drive_service = get_drive_service()
+                    tracker_row = {
+                        "id":                  row["id"],
+                        "date":                datetime.now().strftime("%d-%b-%Y"),
+                        "customer_name":       row.get("customer_name", ""),
+                        "company_name":        row.get("company_name", ""),
+                        "phone":               row.get("phone", ""),
+                        "customer_email":      row.get("sender_email", ""),
+                        "product_description": row.get("product_description", ""),
+                        "status":              "quoted",
+                        "attachment_folder":   row.get("attachment_folder", ""),
+                    }
+                    append_to_tracker(drive_service, tracker_row)
+                except Exception as te:
+                    st.warning(f"Tracker update failed: {te}")
+
             updated += 1
-        except Exception:
-            pass
+        except Exception as e:
+            st.warning(f"Sync error: {e}")
 
     return updated
 
