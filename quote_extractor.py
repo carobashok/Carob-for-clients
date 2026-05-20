@@ -215,6 +215,86 @@ def remove_from_tracker(drive_service, quote_id: str):
     upload_tracker_bytes(drive_service, buf.getvalue())
 
 
+# ── Merge Quotes ──────────────────────────────────────────────────────────────
+
+def merge_quotes(supabase: Client, source_id: str, target_id: str, service) -> bool:
+    """
+    Merge source quote into target quote.
+    - Appends source conversation_log to target
+    - Moves attachments to target Drive folder
+    - Deletes source record from Supabase
+    - Removes source from Followup Tracker
+    """
+    try:
+        # Fetch both records
+        source = supabase.schema(get_schema()).table("quote_requests").select("*").eq("id", source_id).execute().data
+        target = supabase.schema(get_schema()).table("quote_requests").select("*").eq("id", target_id).execute().data
+
+        if not source or not target:
+            return False
+
+        source = source[0]
+        target = target[0]
+
+        # Merge conversation logs
+        source_log = source.get("conversation_log") or []
+        target_log = target.get("conversation_log") or []
+
+        # Tag merged entries
+        for entry in source_log:
+            entry["merged_from"] = source.get("customer_email", "")
+
+        merged_log  = target_log + source_log
+        reply_count = (target.get("reply_count") or 0) + len(source_log)
+
+        # Update target with merged log
+        supabase.schema(get_schema()).table("quote_requests").update({
+            "conversation_log": merged_log,
+            "reply_count":      reply_count,
+            "last_reply_at":    datetime.now(timezone.utc).isoformat(),
+            "needs_review":     True,  # flag for review after merge
+        }).eq("id", target_id).execute()
+
+        # Move attachments to target Drive folder if both have folders
+        source_folder = source.get("attachment_folder", "")
+        target_folder = target.get("attachment_folder", "")
+        if source_folder and target_folder:
+            try:
+                drive_service   = get_drive_service()
+                source_folder_id = source_folder.split("/")[-1]
+                target_folder_id = target_folder.split("/")[-1]
+                # List files in source folder
+                files = drive_service.files().list(
+                    q=f"'{source_folder_id}' in parents",
+                    fields="files(id, name)"
+                ).execute().get("files", [])
+                # Move each file to target folder
+                for f in files:
+                    drive_service.files().update(
+                        fileId=f["id"],
+                        addParents=target_folder_id,
+                        removeParents=source_folder_id,
+                        fields="id"
+                    ).execute()
+            except Exception:
+                pass
+
+        # Remove source from Followup Tracker
+        try:
+            remove_from_tracker(get_drive_service(), source_id)
+        except Exception:
+            pass
+
+        # Delete source record from Supabase
+        supabase.schema(get_schema()).table("quote_requests").delete().eq("id", source_id).execute()
+
+        return True
+
+    except Exception as e:
+        st.error(f"Merge failed: {e}")
+        return False
+
+
 # ── Google Drive ──────────────────────────────────────────────────────────────
 
 @st.cache_resource
@@ -1077,6 +1157,37 @@ with tab_quotes:
                     st.write(f"**Subject:** {row.get('raw_email_subject') or '—'}")
                     st.write(f"**From:** {row.get('sender_email') or '—'}")
                     st.text(row.get("raw_email_body") or "—")
+
+                # Merge feature
+                with st.expander("🔗 Merge into another quote"):
+                    st.caption("Use this if this email is a follow-up from a different person in the same organisation, related to an existing quote.")
+                    try:
+                        all_quotes = supabase.schema(get_schema()).table("quote_requests").select(
+                            "id, customer_name, customer_email, product_description, created_at"
+                        ).neq("id", row["id"]).order("created_at", desc=True).execute().data
+
+                        if not all_quotes:
+                            st.info("No other quotes to merge into.")
+                        else:
+                            merge_options = {
+                                f"{q.get('customer_name') or q.get('customer_email') or 'Unknown'} — {(q.get('product_description') or '')[:40]} ({q.get('created_at', '')[:10]})": q["id"]
+                                for q in all_quotes
+                            }
+                            selected_label = st.selectbox(
+                                "Select quote to merge into:",
+                                list(merge_options.keys()),
+                                key=f"merge_select_{row['id']}"
+                            )
+                            st.warning(f"This will delete the current record and append its conversation to the selected quote.")
+                            if st.button("🔗 Confirm Merge", key=f"merge_btn_{row['id']}", type="primary"):
+                                target_id = merge_options[selected_label]
+                                service   = get_gmail_service()
+                                ok = merge_quotes(supabase, row["id"], target_id, service)
+                                if ok:
+                                    st.success("Merged successfully!")
+                                    st.rerun()
+                    except Exception as e:
+                        st.error(f"Could not load quotes: {e}")
 
                 # Conversation thread
                 conv_log = row.get("conversation_log") or []
