@@ -800,7 +800,12 @@ def mark_as_read(service, message_id: str):
 # ── Claude Extraction ──────────────────────────────────────────────────────────
 
 def extract_quote_fields(email: dict) -> dict | None:
-    client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+    try:
+        api_key = st.secrets["ANTHROPIC_API_KEY"]
+    except Exception as e:
+        st.error(f"Missing ANTHROPIC_API_KEY in secrets: {e}")
+        return None
+    client = anthropic.Anthropic(api_key=api_key)
     prompt = EXTRACTION_PROMPT.format(
         subject=email["subject"],
         sender=email["sender"],
@@ -987,7 +992,7 @@ with tab_inbox:
             with col_cb:
                 st.write("")
                 checked = st.checkbox(
-                    "",
+                    "Select",
                     value=is_checked,
                     key=f"chk_{email['id']}",
                     label_visibility="collapsed",
