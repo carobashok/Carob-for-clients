@@ -110,6 +110,111 @@ def get_app_name() -> str:
         return "Carob Technologies"
 
 
+def get_followup_tracker_id() -> str:
+    """Return Google Drive file ID for Followup_Tracker.xlsx."""
+    try:
+        return st.secrets["FOLLOWUP_TRACKER_ID"]
+    except Exception:
+        return ""
+
+
+# ── Followup Tracker ──────────────────────────────────────────────────────────
+
+def download_tracker_bytes(drive_service) -> bytes | None:
+    """Download Followup_Tracker.xlsx from Drive as bytes."""
+    tracker_id = get_followup_tracker_id()
+    if not tracker_id:
+        return None
+    try:
+        request = drive_service.files().get_media(fileId=tracker_id)
+        buf = io.BytesIO()
+        from googleapiclient.http import MediaIoBaseDownload
+        downloader = MediaIoBaseDownload(buf, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        buf.seek(0)
+        return buf.read()
+    except Exception as e:
+        st.warning(f"Could not download tracker: {e}")
+        return None
+
+
+def upload_tracker_bytes(drive_service, data: bytes):
+    """Overwrite Followup_Tracker.xlsx in Drive with new bytes."""
+    tracker_id = get_followup_tracker_id()
+    if not tracker_id:
+        return
+    try:
+        media = MediaIoBaseUpload(
+            io.BytesIO(data),
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            resumable=False
+        )
+        drive_service.files().update(fileId=tracker_id, media_body=media).execute()
+    except Exception as e:
+        st.warning(f"Could not update tracker: {e}")
+
+
+def append_to_tracker(drive_service, row: dict):
+    """Append a new row to Followup_Tracker.xlsx."""
+    data = download_tracker_bytes(drive_service)
+    if not data:
+        return
+    wb  = openpyxl.load_workbook(io.BytesIO(data))
+    ws  = wb.active
+    from openpyxl.styles import Font as XLFont, Alignment as XLAlignment
+    link_font = XLFont(name="Arial", color="0563C1", underline="single", size=10)
+    normal    = XLFont(name="Arial", size=10)
+    left      = XLAlignment(horizontal="left", vertical="center", wrap_text=True)
+
+    next_row = ws.max_row + 1
+    ws.cell(next_row, 1,  value=row.get("date", "")).font       = normal
+    ws.cell(next_row, 2,  value=row.get("customer_name", "")).font   = normal
+    ws.cell(next_row, 3,  value=row.get("company_name", "")).font    = normal
+    ws.cell(next_row, 4,  value=row.get("phone", "")).font           = normal
+    ws.cell(next_row, 5,  value=row.get("customer_email", "")).font  = normal
+    ws.cell(next_row, 6,  value=row.get("product_description", "")).font = normal
+    ws.cell(next_row, 7,  value=row.get("status", "quoted")).font    = normal
+    ws.cell(next_row, 8,  value="pending").font                      = normal
+    ws.cell(next_row, 9,  value="").font                             = normal
+    ws.cell(next_row, 10, value="").font                             = normal
+
+    # Drive link as clickable hyperlink
+    drive_link = row.get("attachment_folder", "")
+    if drive_link:
+        link_cell = ws.cell(next_row, 11, value="Open Folder")
+        link_cell.hyperlink = drive_link
+        link_cell.font      = link_font
+    else:
+        ws.cell(next_row, 11, value="").font = normal
+
+    # Store quote ID in hidden column L for row removal later
+    ws.cell(next_row, 12, value=row.get("id", "")).font = normal
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    upload_tracker_bytes(drive_service, buf.getvalue())
+
+
+def remove_from_tracker(drive_service, quote_id: str):
+    """Remove a row from Followup_Tracker.xlsx by quote ID (column L)."""
+    data = download_tracker_bytes(drive_service)
+    if not data:
+        return
+    wb = openpyxl.load_workbook(io.BytesIO(data))
+    ws = wb.active
+    rows_to_delete = []
+    for row in ws.iter_rows(min_row=2):
+        if str(row[11].value) == str(quote_id):
+            rows_to_delete.append(row[0].row)
+    for r in reversed(rows_to_delete):
+        ws.delete_rows(r)
+    buf = io.BytesIO()
+    wb.save(buf)
+    upload_tracker_bytes(drive_service, buf.getvalue())
+
+
 # ── Google Drive ──────────────────────────────────────────────────────────────
 
 @st.cache_resource
@@ -930,6 +1035,12 @@ with tab_quotes:
                             supabase.schema(get_schema()).table("quote_requests").update(
                                 {"status": new_status}
                             ).eq("id", row["id"]).execute()
+                            # Remove from tracker if closed
+                            if new_status in ["won", "lost", "not_relevant", "not_feasible"]:
+                                try:
+                                    remove_from_tracker(get_drive_service(), row["id"])
+                                except Exception:
+                                    pass
                             st.success(f"Updated to **{new_status}**")
                             st.rerun()
                         except Exception as e:
