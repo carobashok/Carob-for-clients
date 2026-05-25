@@ -636,7 +636,8 @@ def sync_sent_replies(service, supabase: Client) -> int:
     # Get all known thread_ids from Supabase
     try:
         res = supabase.schema(get_schema()).table("quote_requests").select(
-            "id, thread_id, conversation_log, reply_count, attachment_folder"
+            "id, thread_id, conversation_log, reply_count, attachment_folder, "
+            "customer_name, company_name, phone, sender_email, product_description, status"
         ).not_.is_("thread_id", "null").execute()
         known_threads = {row["thread_id"]: row for row in res.data}
     except Exception:
@@ -756,7 +757,7 @@ def fetch_unread_emails(service) -> list:
                 raise
 
     result = execute_with_retry(
-        service.users().messages().list(userId="me", labelIds=["INBOX", "UNREAD"], maxResults=30)
+        service.users().messages().list(userId="me", labelIds=["INBOX", "UNREAD"], q="category:primary", maxResults=30)
     )
     messages = result.get("messages", [])
     if not messages:
