@@ -316,13 +316,14 @@ def get_so_lines(so_id: int) -> pd.DataFrame:
     return df
 
 def create_so(customer_id: int, order_date: date, expected_date: date,
-              notes: str, lines: list) -> str:
+              notes: str, lines: list, customer_po_number: str = "") -> str:
     sb = get_supabase()
     count_res = sb.table("sales_orders").select("id", count="exact").execute()
     so_num = f"SO-{(count_res.count or 0) + 1:04d}"
     total = sum(l["qty_ordered"] * l["unit_price"] for l in lines)
     so_res = sb.table("sales_orders").insert({
         "so_number": so_num,
+        "customer_po_number": customer_po_number,
         "customer_id": customer_id,
         "order_date": str(order_date),
         "expected_date": str(expected_date),
@@ -632,3 +633,89 @@ def record_production_wastage(production_order_id: int, item_id: int,
         "remarks": f"Production wastage: {reason}",
         "movement_date": str(date.today())
     }).execute()
+
+
+# ── Customer Item Codes ───────────────────────────────────────────────────────
+
+def get_customer_item_codes(customer_id: int = None) -> pd.DataFrame:
+    sb = get_supabase()
+    q = (sb.table("customer_item_codes")
+           .select("*, customers(customer_name), items(name, item_code)")
+           .order("customer_id"))
+    if customer_id:
+        q = q.eq("customer_id", customer_id)
+    res = q.execute()
+    if not res.data:
+        return pd.DataFrame()
+    df = pd.json_normalize(res.data)
+    df.rename(columns={
+        "customers.customer_name": "customer_name",
+        "items.name": "item_name",
+        "items.item_code": "item_code"
+    }, inplace=True)
+    return df
+
+def get_customer_item_map(customer_id: int) -> dict:
+    """Returns {item_id: {customer_code, customer_description}} for a customer"""
+    sb = get_supabase()
+    res = (sb.table("customer_item_codes")
+             .select("item_id, customer_item_code, customer_item_description")
+             .eq("customer_id", customer_id)
+             .execute())
+    if not res.data:
+        return {}
+    return {r["item_id"]: {
+        "code": r["customer_item_code"],
+        "desc": r["customer_item_description"]
+    } for r in res.data}
+
+def add_customer_item_code(data: dict):
+    sb = get_supabase()
+    sb.table("customer_item_codes").insert(data).execute()
+
+def update_customer_item_code(record_id: int, data: dict):
+    sb = get_supabase()
+    sb.table("customer_item_codes").update(data).eq("id", record_id).execute()
+
+def delete_customer_item_code(record_id: int):
+    sb = get_supabase()
+    sb.table("customer_item_codes").delete().eq("id", record_id).execute()
+
+def get_so_lines_with_customer_codes(so_id: int) -> pd.DataFrame:
+    """SO lines with both our codes and customer codes"""
+    sb = get_supabase()
+    res = (sb.table("so_lines")
+             .select("*, items(name, item_code, unit)")
+             .eq("so_id", so_id)
+             .execute())
+    if not res.data:
+        return pd.DataFrame()
+
+    # Get customer_id for this SO
+    so_res = sb.table("sales_orders").select("customer_id, customer_po_number").eq("id", so_id).execute()
+    customer_id = so_res.data[0]["customer_id"] if so_res.data else None
+    customer_po = so_res.data[0].get("customer_po_number", "") if so_res.data else ""
+
+    # Get customer item map
+    cust_map = get_customer_item_map(customer_id) if customer_id else {}
+
+    rows = []
+    for r in res.data:
+        item = r.get("items") or {}
+        item_id = r["item_id"]
+        cust_info = cust_map.get(item_id, {})
+        rows.append({
+            "id": r["id"],
+            "item_id": item_id,
+            "item_code": item.get("item_code", ""),
+            "item_name": item.get("name", ""),
+            "unit": item.get("unit", ""),
+            "customer_item_code": cust_info.get("code", "—"),
+            "customer_description": cust_info.get("desc", "—"),
+            "qty_ordered": r["qty_ordered"],
+            "qty_dispatched": r["qty_dispatched"],
+            "unit_price": r["unit_price"],
+            "line_total": r["qty_ordered"] * r["unit_price"],
+            "customer_po_number": customer_po
+        })
+    return pd.DataFrame(rows)
