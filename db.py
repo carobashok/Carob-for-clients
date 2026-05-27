@@ -585,3 +585,50 @@ def get_production_summary() -> pd.DataFrame:
             "end_date": r.get("end_date", "")
         })
     return pd.DataFrame(rows)
+
+
+# ── Production Wastage ────────────────────────────────────────────────────────
+
+def record_production_wastage(production_order_id: int, item_id: int,
+                               wastage_qty: float, reason: str, order_number: str):
+    """Record mid-production wastage — deducts stock and updates consumption record"""
+    sb = get_supabase()
+
+    # Check if consumption line exists for this item in this order
+    cons_res = (sb.table("production_consumption")
+                  .select("id, wastage, qty_actual")
+                  .eq("production_order_id", production_order_id)
+                  .eq("item_id", item_id)
+                  .execute())
+
+    if cons_res.data:
+        # Update existing consumption line wastage
+        cons = cons_res.data[0]
+        new_wastage = cons["wastage"] + wastage_qty
+        sb.table("production_consumption").update(
+            {"wastage": new_wastage}
+        ).eq("id", cons["id"]).execute()
+    else:
+        # Create a new consumption line for wastage only
+        sb.table("production_consumption").insert({
+            "production_order_id": production_order_id,
+            "item_id": item_id,
+            "qty_planned": 0,
+            "qty_actual": 0,
+            "wastage": wastage_qty
+        }).execute()
+
+    # Deduct from stock
+    item_res = sb.table("items").select("current_stock").eq("id", item_id).execute()
+    cur = item_res.data[0]["current_stock"]
+    sb.table("items").update({"current_stock": cur - wastage_qty}).eq("id", item_id).execute()
+
+    # Log stock movement
+    sb.table("stock_movements").insert({
+        "item_id": item_id,
+        "movement_type": "Wastage",
+        "qty": -wastage_qty,
+        "reference": order_number,
+        "remarks": f"Production wastage: {reason}",
+        "movement_date": str(date.today())
+    }).execute()
