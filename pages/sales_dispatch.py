@@ -86,7 +86,7 @@ def show():
         if not customers:
             st.warning("⚠️ Please add customers first in the 'Customers' tab.")
         else:
-            customer_map = {f"{c['name']} — {c['city']}": c["id"] for c in customers}
+            customer_map = {f"{c['customer_name']} — {c['city']}": c["customer_id"] for c in customers}
             items_list = db.get_item_options()
             # Only FG and WIP for sales
             fg_items = [i for i in items_list if True]
@@ -283,9 +283,9 @@ def show():
                     st.error("Customer name is required.")
                 else:
                     db.add_customer({
-                        "name": c_name, "contact_person": c_contact,
+                        "customer_name": c_name, "contact_person": c_contact,
                         "phone": c_phone, "email": c_email,
-                        "city": c_city, "gstin": c_gstin
+                        "address": "-", "city": c_city, "pincode": "000000"
                     })
                     st.success(f"✅ Customer '{c_name}' added.")
                     st.rerun()
