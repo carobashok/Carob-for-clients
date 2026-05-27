@@ -69,7 +69,7 @@ def show():
 
         # Manual stock adjustment
         st.markdown("<hr>", unsafe_allow_html=True)
-        st.subheader("Manual Stock Adjustment")
+        st.subheader("Manual Stock Adjustment / Wastage")
         items_list = db.get_item_options()
         if items_list:
             item_map = {f"{i['item_code']} — {i['name']}": i for i in items_list}
@@ -77,12 +77,18 @@ def show():
             item_data = item_map[sel]
             col_a, col_b, col_c = st.columns([1.5, 1, 1])
             with col_a:
-                mv_type = st.selectbox("Movement Type", ["GRN", "Issue", "Return", "Adjustment"])
+                mv_type = st.selectbox("Movement Type",
+                                       ["GRN", "Issue", "Return", "Adjustment", "Wastage"])
             with col_b:
                 mv_qty = st.number_input("Quantity", min_value=0.01, value=1.0, step=0.5)
             with col_c:
-                mv_ref = st.text_input("Reference", "")
-            mv_remarks = st.text_input("Remarks", "")
+                mv_ref = st.text_input("Reference", "",
+                                        placeholder="PO/PRD/SO number")
+            mv_remarks = st.text_input("Remarks", "",
+                                        placeholder="Reason for wastage / adjustment")
+            if mv_type == "Wastage":
+                st.info("⚠️ Wastage will deduct from stock and appear in Stock Ledger. "
+                        "For production-linked wastage, use the Production module.")
             if st.button("Post Movement"):
                 db.log_movement(item_data["id"], mv_type, mv_qty, mv_ref, mv_remarks)
                 st.success(f"✅ {mv_type} of {mv_qty} {item_data['unit']} posted for {item_data['name']}")

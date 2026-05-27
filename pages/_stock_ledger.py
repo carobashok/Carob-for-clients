@@ -24,7 +24,7 @@ def show():
         sel_item_id = item_options[sel_item_label]
     with col_f2:
         mv_type_filter = st.selectbox("Movement Type",
-                                       ["All", "GRN", "Issue", "Return", "Adjustment"])
+                                       ["All", "GRN", "Issue", "Return", "Adjustment", "Wastage"])
     with col_f3:
         limit = st.selectbox("Show last", [50, 100, 250, 500], index=1)
 
@@ -80,7 +80,8 @@ def show():
             trend, x="movement_date", y="qty", color="movement_type",
             color_discrete_map={
                 "GRN": "#166534", "Issue": "#991B1B",
-                "Return": "#1E40AF", "Adjustment": "#C9A84C"
+                "Return": "#1E40AF", "Adjustment": "#C9A84C",
+                "Wastage": "#DC2626"
             },
             labels={"movement_date": "Date", "qty": "Quantity", "movement_type": "Type"},
             barmode="group"

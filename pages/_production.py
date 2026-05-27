@@ -14,7 +14,8 @@ def show():
     st.markdown('<div class="carob-subtitle">Production orders · Material consumption · Wastage tracking</div>',
                 unsafe_allow_html=True)
 
-    tab1, tab2, tab3 = st.tabs(["📋 Orders", "➕ New Production Order", "✅ Record Completion"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📋 Orders", "➕ New Production Order",
+                                       "✅ Record Completion", "⚠️ Record Wastage"])
 
     # ── Tab 1: Order List ────────────────────────────────────────────────────
     with tab1:
@@ -188,3 +189,92 @@ def show():
             st.success(f"✅ Production Order **{sel_complete}** completed. "
                        f"{qty_produced} units added to finished goods stock.")
             st.rerun()
+
+    # ── Tab 4: Record Wastage ────────────────────────────────────────────────
+    with tab4:
+        st.subheader("Record Mid-Production Wastage")
+        st.caption("Use this to record material breakage or damage during an active production order. "
+                   "Stock is deducted immediately and linked to the production order.")
+
+        prd_df3 = db.get_production_orders()
+        active_orders = prd_df3[prd_df3["status"].isin(["Planned", "In Progress"])] \
+            if not prd_df3.empty else pd.DataFrame()
+
+        if active_orders.empty:
+            st.info("No active production orders. Wastage can only be recorded against open orders.")
+        else:
+            order_opts3 = {row["order_number"]: row["id"]
+                           for _, row in active_orders.iterrows()}
+
+            col_w1, col_w2 = st.columns(2)
+            with col_w1:
+                sel_wastage_order = st.selectbox("Production Order *",
+                                                  list(order_opts3.keys()),
+                                                  key="wastage_order")
+            with col_w2:
+                items_list = db.get_item_options()
+                item_map2 = {f"{i['item_code']} — {i['name']}": i for i in items_list}
+                sel_wastage_item = st.selectbox("Material Wasted *",
+                                                 list(item_map2.keys()),
+                                                 key="wastage_item")
+
+            item_data2 = item_map2[sel_wastage_item]
+
+            # Show current stock
+            stock_df = db.get_stock_alerts()
+            current_stock = 0
+            if not stock_df.empty:
+                match = stock_df[stock_df["id"] == item_data2["id"]]
+                if not match.empty:
+                    current_stock = match.iloc[0]["current_stock"]
+
+            col_w3, col_w4 = st.columns(2)
+            with col_w3:
+                wastage_qty = st.number_input(
+                    f"Wastage Quantity ({item_data2['unit']})",
+                    min_value=0.01,
+                    max_value=float(current_stock) if current_stock > 0 else 999999.0,
+                    value=1.0,
+                    key="wastage_qty"
+                )
+            with col_w4:
+                st.metric("Current Stock", f"{current_stock} {item_data2['unit']}")
+
+            wastage_reason = st.selectbox("Reason *", [
+                "Material broke during cutting",
+                "Mould failure",
+                "Operator error",
+                "Machine malfunction",
+                "Quality rejection",
+                "Spillage / leakage",
+                "Other"
+            ], key="wastage_reason")
+
+            wastage_remarks = st.text_input("Additional Remarks", "", key="wastage_remarks")
+
+            reason_full = wastage_reason
+            if wastage_remarks:
+                reason_full = f"{wastage_reason} — {wastage_remarks}"
+
+            st.markdown("<hr>", unsafe_allow_html=True)
+            st.markdown(f"**Summary:** Recording wastage of **{wastage_qty} {item_data2['unit']}** "
+                        f"of **{sel_wastage_item}** against order **{sel_wastage_order}**")
+
+            if current_stock <= 0:
+                st.error("⚠️ This item has no stock to deduct wastage from.")
+            elif wastage_qty > current_stock:
+                st.error(f"⚠️ Wastage qty ({wastage_qty}) exceeds current stock ({current_stock}).")
+            else:
+                if st.button("⚠️ Post Wastage"):
+                    db.record_production_wastage(
+                        production_order_id=order_opts3[sel_wastage_order],
+                        item_id=item_data2["id"],
+                        wastage_qty=wastage_qty,
+                        reason=reason_full,
+                        order_number=sel_wastage_order
+                    )
+                    st.success(
+                        f"✅ Wastage of **{wastage_qty} {item_data2['unit']}** recorded for "
+                        f"**{sel_wastage_item}** against **{sel_wastage_order}**. Stock updated."
+                    )
+                    st.rerun()
