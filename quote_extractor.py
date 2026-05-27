@@ -364,8 +364,9 @@ def generate_quote_excel(email: dict, fields: dict, folder_url: str = "") -> byt
             if address:
                 # Split address by comma into multiple lines
                 parts = [p.strip() for p in address.split(",") if p.strip()]
-                ws["L10"] = "\n".join(parts)
-                ws["L10"].alignment = XLAlign(wrap_text=True, vertical="top")
+                cell = ws["L10"]
+                cell.value     = "\n".join(parts)
+                cell.alignment = XLAlign(wrap_text=True, vertical="top")
             if gst:
                 ws["Q14"] = gst       # GST Number
 
