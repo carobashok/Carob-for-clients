@@ -112,6 +112,14 @@ def get_app_name() -> str:
         return "Carob Technologies"
 
 
+def get_email_provider() -> str:
+    """Return email provider from secrets. Defaults to gmail. Supports: gmail, o365"""
+    try:
+        return st.secrets["EMAIL_PROVIDER"].lower()
+    except Exception:
+        return "gmail"
+
+
 def get_followup_tracker_id() -> str:
     """Return Google Drive file ID for Followup_Tracker.xlsx."""
     try:
