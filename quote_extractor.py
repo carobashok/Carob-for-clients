@@ -113,11 +113,11 @@ def get_app_name() -> str:
 
 
 def get_email_provider() -> str:
-    """Return email provider from secrets. Defaults to gmail. Supports: gmail, o365"""
-    try:
-        return st.secrets["EMAIL_PROVIDER"].lower()
-    except Exception:
-        return "gmail"
+    """Return email provider from secrets. Must be explicitly set. Supports: gmail, o365"""
+    if "EMAIL_PROVIDER" not in st.secrets:
+        st.error("EMAIL_PROVIDER is not set in secrets. Please add EMAIL_PROVIDER = \"gmail\" to your secrets.toml.")
+        st.stop()
+    return st.secrets["EMAIL_PROVIDER"].lower()
 
 
 def get_followup_tracker_id() -> str:
