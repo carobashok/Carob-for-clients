@@ -56,6 +56,8 @@ Fields to extract:
 - customer_email: email address of the original sender (string or null)
 - company_name: company or organisation name if mentioned (string or null)
 - phone: phone number if mentioned (string or null)
+- address: full postal address if mentioned — include door number, street, area, city, pincode (string or null)
+- gst_number: GST registration number if mentioned — typically starts with state code digits (string or null)
 - product_description: what product or service they are asking about — summarise clearly (string)
 - quantity: number of units, licences, projects, etc. (string or null)
 - unit: unit type e.g. units, licences, nos, projects (string or null)
@@ -353,41 +355,38 @@ def generate_quote_excel(email: dict, fields: dict, folder_url: str = "") -> byt
         wb = openpyxl.load_workbook(template_path, keep_vba=False, data_only=False)
         wb.template = False  # convert from template to regular workbook
 
-        if "Qtn_table1" in wb.sheetnames:
-            ws = wb["Qtn_table1"]
-
-            # Mail Date — L4 (not merged)
-            ws["L4"] = datetime.now().strftime("%d-%b-%Y")
-
-            # Mail ID (customer email) — L6 (not merged)
-            ws["L6"] = fields.get("customer_email") or ""
-
-            # Company Name — K8 (K8:M8 is merged, write to top-left K8)
-            ws["K8"] = fields.get("company_name") or fields.get("customer_name") or ""
-
-            # Address — L10 (not merged)
-            ws["L10"] = fields.get("location") or ""
-
-            # Contact Person Name — L15 (not merged)
-            ws["L15"] = fields.get("customer_name") or ""
-
-            # Phone Numbers — L17 (not merged)
-            ws["L17"] = fields.get("phone") or ""
-
-            # Quote To left side — C9 (K9:O9 merged, C9 is separate)
-            customer_name = fields.get("customer_name") or ""
-            company_name  = fields.get("company_name") or ""
-            ws["C9"]  = company_name or customer_name
-            ws["C10"] = fields.get("location") or ""
-
-        # Also fill WORK OUT sheet — feeds into Fallow up sheet via formulas
+        # Fill WORK OUT sheet — drives formulas in Fallow up and Qtn_table1
         if "WORK OUT" in wb.sheetnames:
             wo = wb["WORK OUT"]
-            wo["N2"] = fields.get("customer_name") or ""   # Kind Attn → Fallow up E3
-            wo["N3"] = fields.get("phone") or ""           # Phone     → Fallow up F3
-            wo["N4"] = fields.get("customer_email") or ""  # Mail ID   → Fallow up G3
+            customer_name = fields.get("customer_name") or ""
+            company_name  = fields.get("company_name") or ""
+            address       = fields.get("address") or fields.get("location") or ""
+            # D2 — Name & Address block (merged D2:J4)
+            wo["D2"] = " | ".join(filter(None, [company_name, customer_name, address]))
+            wo["N2"] = customer_name           # Enquired By → Fallow up E3
+            wo["N3"] = fields.get("phone") or ""   # Phone → Fallow up F3
+            wo["N4"] = fields.get("customer_email") or ""  # Mail ID → Fallow up G3
 
-        # Fill Fallow up Link column I3 with clickable hyperlink
+        # Fill Qtn_table1 sheet
+        if "Qtn_table1" in wb.sheetnames:
+            ws = wb["Qtn_table1"]
+            customer_name = fields.get("customer_name") or ""
+            company_name  = fields.get("company_name") or ""
+            address       = fields.get("address") or fields.get("location") or ""
+
+            ws["L4"]  = datetime.now().strftime("%d-%b-%Y")   # Mail Date
+            ws["L6"]  = fields.get("customer_email") or ""    # Mail ID
+            ws["K8"]  = company_name or customer_name          # Company Name (merged K8:M8)
+            ws["L10"] = address                                # Address
+            ws["C9"]  = company_name or customer_name          # Quote To
+            ws["C10"] = address
+
+            # GST Number — Q14 (P14 is the label "GST#")
+            gst = fields.get("gst_number") or ""
+            if gst:
+                ws["Q14"] = gst
+
+        # Fill Fallow up — Drive link in I3
         if "Fallow up" in wb.sheetnames and folder_url:
             from openpyxl.styles import Font as XLFont
             fu = wb["Fallow up"]
