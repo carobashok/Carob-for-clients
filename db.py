@@ -430,3 +430,158 @@ def get_sales_kpis() -> dict:
         "open_so_value": open_so_value,
         "fulfilled_value": fulfilled_value
     }
+
+
+# ── Reports ───────────────────────────────────────────────────────────────────
+
+def get_stock_valuation() -> pd.DataFrame:
+    sb = get_supabase()
+    res = sb.table("v_stock_alerts").select("*").order("category").execute()
+    return pd.DataFrame(res.data) if res.data else pd.DataFrame()
+
+def get_dispatch_register(date_from: str = None, date_to: str = None,
+                           customer_id: int = None) -> pd.DataFrame:
+    sb = get_supabase()
+    q = (sb.table("dispatch_notes")
+           .select("*, sales_orders(so_number, total_value), customers(customer_name)")
+           .order("dispatch_date", desc=True))
+    if date_from:
+        q = q.gte("dispatch_date", date_from)
+    if date_to:
+        q = q.lte("dispatch_date", date_to)
+    if customer_id:
+        q = q.eq("customer_id", customer_id)
+    res = q.execute()
+    if not res.data:
+        return pd.DataFrame()
+    df = pd.json_normalize(res.data)
+    df.rename(columns={
+        "sales_orders.so_number": "so_number",
+        "customers.customer_name": "customer_name"
+    }, inplace=True)
+
+    # Get dispatch lines for each DN
+    all_lines = []
+    for _, row in df.iterrows():
+        lines_res = (sb.table("dispatch_lines")
+                       .select("*, items(name, item_code, unit)")
+                       .eq("dn_id", row["id"])
+                       .execute())
+        for line in (lines_res.data or []):
+            all_lines.append({
+                "dn_number": row["dn_number"],
+                "so_number": row.get("so_number", ""),
+                "customer_name": row.get("customer_name", ""),
+                "dispatch_date": row["dispatch_date"],
+                "vehicle_no": row.get("vehicle_no", ""),
+                "item_code": line.get("items", {}).get("item_code", ""),
+                "item_name": line.get("items", {}).get("name", ""),
+                "unit": line.get("items", {}).get("unit", ""),
+                "qty_dispatched": line["qty_dispatched"]
+            })
+    return pd.DataFrame(all_lines) if all_lines else pd.DataFrame()
+
+def get_pending_orders(order_type: str = "SO") -> pd.DataFrame:
+    sb = get_supabase()
+    if order_type == "SO":
+        res = (sb.table("so_lines")
+                 .select("*, sales_orders(so_number, order_date, expected_date, status, customers(customer_name)), items(name, item_code, unit)")
+                 .execute())
+        if not res.data:
+            return pd.DataFrame()
+        rows = []
+        today = date.today()
+        for r in res.data:
+            so = r.get("sales_orders") or {}
+            item = r.get("items") or {}
+            if so.get("status") in ("Open", "Partial"):
+                pending = r["qty_ordered"] - r["qty_dispatched"]
+                if pending > 0:
+                    order_date = so.get("order_date", "")
+                    age = (today - date.fromisoformat(order_date)).days if order_date else 0
+                    rows.append({
+                        "so_number": so.get("so_number", ""),
+                        "customer_name": (so.get("customers") or {}).get("customer_name", ""),
+                        "order_date": order_date,
+                        "expected_date": so.get("expected_date", ""),
+                        "item_code": item.get("item_code", ""),
+                        "item_name": item.get("name", ""),
+                        "unit": item.get("unit", ""),
+                        "qty_ordered": r["qty_ordered"],
+                        "qty_dispatched": r["qty_dispatched"],
+                        "qty_pending": pending,
+                        "pending_value": pending * r["unit_price"],
+                        "age_days": age,
+                        "status": so.get("status", "")
+                    })
+        return pd.DataFrame(rows)
+    else:  # PO
+        res = (sb.table("po_lines")
+                 .select("*, purchase_orders(po_number, order_date, expected_date, status, suppliers(name)), items(name, item_code, unit)")
+                 .execute())
+        if not res.data:
+            return pd.DataFrame()
+        rows = []
+        today = date.today()
+        for r in res.data:
+            po = r.get("purchase_orders") or {}
+            item = r.get("items") or {}
+            if po.get("status") in ("Ordered", "Partial"):
+                pending = r["qty_ordered"] - r["qty_received"]
+                if pending > 0:
+                    order_date = po.get("order_date", "")
+                    age = (today - date.fromisoformat(order_date)).days if order_date else 0
+                    rows.append({
+                        "po_number": po.get("po_number", ""),
+                        "supplier_name": (po.get("suppliers") or {}).get("name", ""),
+                        "order_date": order_date,
+                        "expected_date": po.get("expected_date", ""),
+                        "item_code": item.get("item_code", ""),
+                        "item_name": item.get("name", ""),
+                        "unit": item.get("unit", ""),
+                        "qty_ordered": r["qty_ordered"],
+                        "qty_received": r["qty_received"],
+                        "qty_pending": pending,
+                        "age_days": age,
+                        "status": po.get("status", "")
+                    })
+        return pd.DataFrame(rows)
+
+def get_production_summary() -> pd.DataFrame:
+    sb = get_supabase()
+    res = (sb.table("production_orders")
+             .select("*, items(name, item_code)")
+             .order("created_at", desc=True)
+             .execute())
+    if not res.data:
+        return pd.DataFrame()
+
+    rows = []
+    for r in res.data:
+        item = r.get("items") or {}
+        cons_res = (sb.table("production_consumption")
+                      .select("qty_planned, qty_actual, wastage")
+                      .eq("production_order_id", r["id"])
+                      .execute())
+        cons = cons_res.data or []
+        total_planned = sum(c["qty_planned"] for c in cons)
+        total_actual = sum(c["qty_actual"] for c in cons)
+        total_wastage = sum(c["wastage"] for c in cons)
+        wastage_pct = round((total_wastage / total_actual * 100), 1) if total_actual > 0 else 0
+        efficiency = round((r["qty_produced"] / r["qty_planned"] * 100), 1) if r["qty_planned"] > 0 else 0
+        rows.append({
+            "order_number": r["order_number"],
+            "product_code": item.get("item_code", ""),
+            "product_name": item.get("name", ""),
+            "qty_planned": r["qty_planned"],
+            "qty_produced": r["qty_produced"],
+            "efficiency_%": efficiency,
+            "material_planned": total_planned,
+            "material_actual": total_actual,
+            "wastage": total_wastage,
+            "wastage_%": wastage_pct,
+            "status": r["status"],
+            "start_date": r.get("start_date", ""),
+            "end_date": r.get("end_date", "")
+        })
+    return pd.DataFrame(rows)

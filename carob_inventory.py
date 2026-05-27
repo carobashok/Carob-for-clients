@@ -124,7 +124,7 @@ with st.sidebar:
     page = st.radio(
         "Navigation",
         ["📊 Dashboard", "📦 Inventory", "🛒 Purchase Orders", "🏭 Production",
-         "🚚 Sales & Dispatch", "📋 Stock Ledger"],
+         "🚚 Sales & Dispatch", "📋 Stock Ledger", "📈 Reports"],
         label_visibility="collapsed"
     )
 
@@ -152,6 +152,9 @@ elif page == "🏭 Production":
     show()
 elif page == "🚚 Sales & Dispatch":
     from pages.sales_dispatch import show
+    show()
+elif page == "📈 Reports":
+    from pages.reports import show
     show()
 elif page == "📋 Stock Ledger":
     from pages.stock_ledger import show
