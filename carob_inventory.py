@@ -3,6 +3,8 @@ Carob Inventory Manager — Main App
 Manufacturing Inventory POC by Carob Technologies
 """
 import streamlit as st
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 st.set_page_config(
     page_title="Carob Inventory Manager",
@@ -30,6 +32,11 @@ st.markdown("""
     [data-testid="stSidebar"] .stRadio label {
         font-size: 0.95rem;
         padding: 4px 0;
+    }
+
+    /* Hide Streamlit multi-page nav */
+    [data-testid="stSidebarNav"] {
+        display: none !important;
     }
 
     /* Metric cards */
@@ -102,11 +109,6 @@ st.markdown("""
     /* Hide Streamlit branding */
     #MainMenu, footer { visibility: hidden; }
     header { visibility: hidden; }
-
-/* Hide Streamlit multi-page nav */
-[data-testid="stSidebarNav"] {
-    display: none;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -144,23 +146,23 @@ with st.sidebar:
 
 # ── Route pages ──────────────────────────────────────────────────────────────
 if page == "📊 Dashboard":
-    from pages.dashboard import show
+    from pages._dashboard import show
     show()
 elif page == "📦 Inventory":
-    from pages.inventory import show
+    from pages._inventory import show
     show()
 elif page == "🛒 Purchase Orders":
-    from pages.purchase_orders import show
+    from pages._purchase_orders import show
     show()
 elif page == "🏭 Production":
-    from pages.production import show
+    from pages._production import show
     show()
 elif page == "🚚 Sales & Dispatch":
-    from pages.sales_dispatch import show
+    from pages._sales_dispatch import show
     show()
 elif page == "📈 Reports":
-    from pages.reports import show
+    from pages._reports import show
     show()
 elif page == "📋 Stock Ledger":
-    from pages.stock_ledger import show
+    from pages._stock_ledger import show
     show()
