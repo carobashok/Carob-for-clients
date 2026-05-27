@@ -102,6 +102,11 @@ st.markdown("""
     /* Hide Streamlit branding */
     #MainMenu, footer { visibility: hidden; }
     header { visibility: hidden; }
+
+/* Hide Streamlit multi-page nav */
+[data-testid="stSidebarNav"] {
+    display: none;
+}
 </style>
 """, unsafe_allow_html=True)
 
