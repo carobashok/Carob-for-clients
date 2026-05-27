@@ -357,11 +357,15 @@ def generate_quote_excel(email: dict, fields: dict, folder_url: str = "") -> byt
 
         # Fill Qtn_table1 — address and GST only
         if "Qtn_table1" in wb.sheetnames:
-            ws = wb["Qtn_table1"]
+            from openpyxl.styles import Alignment as XLAlign
+            ws  = wb["Qtn_table1"]
             address = fields.get("address") or fields.get("location") or ""
             gst     = fields.get("gst_number") or ""
             if address:
-                ws["L10"] = address   # Address
+                # Split address by comma into multiple lines
+                parts = [p.strip() for p in address.split(",") if p.strip()]
+                ws["L10"] = "\n".join(parts)
+                ws["L10"].alignment = XLAlign(wrap_text=True, vertical="top")
             if gst:
                 ws["Q14"] = gst       # GST Number
 
