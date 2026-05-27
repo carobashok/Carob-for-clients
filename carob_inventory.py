@@ -137,6 +137,9 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 # ── Route pages ──────────────────────────────────────────────────────────────
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 if page == "📊 Dashboard":
     from pages.dashboard import show
     show()
