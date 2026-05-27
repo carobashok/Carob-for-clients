@@ -362,8 +362,13 @@ def generate_quote_excel(email: dict, fields: dict, folder_url: str = "") -> byt
             address = fields.get("address") or fields.get("location") or ""
             gst     = fields.get("gst_number") or ""
             if address:
-                # Split address by comma into multiple lines
+                # Merge L10:O13 and fill with address
                 parts = [p.strip() for p in address.split(",") if p.strip()]
+                # Unmerge first if already merged
+                for merge in list(ws.merged_cells.ranges):
+                    if merge.min_row <= 10 <= merge.max_row and merge.min_col <= 12 <= merge.max_col:
+                        ws.unmerge_cells(str(merge))
+                ws.merge_cells("L10:O13")
                 cell = ws["L10"]
                 cell.value     = "\n".join(parts)
                 cell.alignment = XLAlign(wrap_text=True, vertical="top")
