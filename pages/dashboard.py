@@ -14,6 +14,7 @@ def show():
     st.markdown('<div class="carob-subtitle">Inventory health at a glance</div>', unsafe_allow_html=True)
 
     kpis = db.get_dashboard_kpis()
+    sales_kpis = db.get_sales_kpis()
 
     # ── KPI Row ──────────────────────────────────────────────────────────────
     c1, c2, c3, c4, c5, c6 = st.columns(6)
@@ -25,8 +26,8 @@ def show():
     c4.metric("Out of Stock", kpis["out_of_stock"],
               delta=f"{kpis['out_of_stock']} items",
               delta_color="inverse")
-    c5.metric("Open POs", f"{kpis['open_po_count']}")
-    c6.metric("Open PO Value (₹)", f"{kpis['open_po_value']:,.0f}")
+    c5.metric("Open Sales Orders", f"{sales_kpis['open_so_count']}")
+    c6.metric("Open SO Value (₹)", f"{sales_kpis['open_so_value']:,.0f}")
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
