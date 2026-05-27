@@ -444,7 +444,7 @@ def save_to_drive(service, email: dict, fields: dict) -> tuple[str, int]:
                 continue
             try:
                 data = download_attachment(service, email["id"], att["attachment_id"])
-                upload_bytes_to_drive(drive_service, folder_id, att["filename"], data, att.get("mime_type", ""), timestamp=True)
+                upload_bytes_to_drive(drive_service, folder_id, att["filename"], data, att.get("mime_type", ""))
                 att_count += 1
             except Exception as e:
                 st.warning(f"Could not upload {att['filename']}: {e}")
@@ -666,24 +666,23 @@ def sync_sent_replies(service, supabase: Client) -> int:
         }
         conv_log.append(conv_entry)
 
-        # Upload revised attachments to same Drive folder with timestamp
+        # Upload sent attachments in dated outgoing subfolder
         att_uploaded = 0
         folder_url   = row.get("attachment_folder", "")
         if email.get("attachments") and folder_url:
             try:
                 drive_service = get_drive_service()
-                # Extract folder_id from URL
-                folder_id = folder_url.split("/")[-1]
+                folder_id     = folder_url.split("/")[-1]
+                sub_folder_id = create_attachment_subfolder(drive_service, folder_id, email, "outgoing")
                 for att in email["attachments"]:
                     if not att.get("attachment_id"):
                         continue
                     try:
                         data = download_attachment(service, email["id"], att["attachment_id"])
                         upload_bytes_to_drive(
-                            drive_service, folder_id,
+                            drive_service, sub_folder_id,
                             att["filename"], data,
-                            att.get("mime_type", ""),
-                            timestamp=True  # add timestamp to avoid overwrite
+                            att.get("mime_type", "")
                         )
                         att_uploaded += 1
                     except Exception:
