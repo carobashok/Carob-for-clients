@@ -11,9 +11,10 @@ from datetime import date
 
 @st.cache_resource
 def get_supabase() -> Client:
-    url = st.secrets["supabase"]["url"]
-    key = st.secrets["supabase"]["key"]
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
+
 
 # ── Items ────────────────────────────────────────────────────────────────────
 
@@ -274,4 +275,158 @@ def get_dashboard_kpis() -> dict:
         "open_po_count": open_po_count,
         "open_po_value": open_po_value,
         "active_production": active_production
+    }
+
+
+# ── Customers ────────────────────────────────────────────────────────────────
+
+def get_all_customers() -> pd.DataFrame:
+    sb = get_supabase()
+    res = sb.table("customers").select("*").order("name").execute()
+    return pd.DataFrame(res.data) if res.data else pd.DataFrame()
+
+def get_customer_options() -> list:
+    sb = get_supabase()
+    res = sb.table("customers").select("id, name, city").order("name").execute()
+    return res.data if res.data else []
+
+def add_customer(data: dict):
+    sb = get_supabase()
+    sb.table("customers").insert(data).execute()
+
+
+# ── Sales Orders ─────────────────────────────────────────────────────────────
+
+def get_so_summary() -> pd.DataFrame:
+    sb = get_supabase()
+    res = sb.table("v_so_summary").select("*").order("order_date", desc=True).execute()
+    return pd.DataFrame(res.data) if res.data else pd.DataFrame()
+
+def get_so_lines(so_id: int) -> pd.DataFrame:
+    sb = get_supabase()
+    res = (sb.table("so_lines")
+             .select("*, items(name, item_code, unit)")
+             .eq("so_id", so_id)
+             .execute())
+    if not res.data:
+        return pd.DataFrame()
+    df = pd.json_normalize(res.data)
+    df.rename(columns={"items.name": "item_name", "items.item_code": "item_code",
+                        "items.unit": "unit"}, inplace=True)
+    return df
+
+def create_so(customer_id: int, order_date: date, expected_date: date,
+              notes: str, lines: list) -> str:
+    sb = get_supabase()
+    count_res = sb.table("sales_orders").select("id", count="exact").execute()
+    so_num = f"SO-{(count_res.count or 0) + 1:04d}"
+    total = sum(l["qty_ordered"] * l["unit_price"] for l in lines)
+    so_res = sb.table("sales_orders").insert({
+        "so_number": so_num,
+        "customer_id": customer_id,
+        "order_date": str(order_date),
+        "expected_date": str(expected_date),
+        "notes": notes,
+        "status": "Open",
+        "total_value": total
+    }).execute()
+    so_id = so_res.data[0]["id"]
+    for line in lines:
+        line["so_id"] = so_id
+        sb.table("so_lines").insert(line).execute()
+    return so_num
+
+
+# ── Dispatch ─────────────────────────────────────────────────────────────────
+
+def get_dispatch_summary() -> pd.DataFrame:
+    sb = get_supabase()
+    res = sb.table("v_dispatch_summary").select("*").order("dispatch_date", desc=True).execute()
+    return pd.DataFrame(res.data) if res.data else pd.DataFrame()
+
+def get_dispatch_lines(dn_id: int) -> pd.DataFrame:
+    sb = get_supabase()
+    res = (sb.table("dispatch_lines")
+             .select("*, items(name, item_code, unit)")
+             .eq("dn_id", dn_id)
+             .execute())
+    if not res.data:
+        return pd.DataFrame()
+    df = pd.json_normalize(res.data)
+    df.rename(columns={"items.name": "item_name", "items.item_code": "item_code",
+                        "items.unit": "unit"}, inplace=True)
+    return df
+
+def create_dispatch(so_id: int, customer_id: int, dispatch_date: date,
+                    vehicle_no: str, driver_name: str, remarks: str,
+                    lines: list) -> str:
+    sb = get_supabase()
+    count_res = sb.table("dispatch_notes").select("id", count="exact").execute()
+    dn_num = f"DN-{(count_res.count or 0) + 1:04d}"
+
+    dn_res = sb.table("dispatch_notes").insert({
+        "dn_number": dn_num,
+        "so_id": so_id,
+        "customer_id": customer_id,
+        "dispatch_date": str(dispatch_date),
+        "vehicle_no": vehicle_no,
+        "driver_name": driver_name,
+        "remarks": remarks
+    }).execute()
+    dn_id = dn_res.data[0]["id"]
+
+    all_fulfilled = True
+    for line in lines:
+        if line["qty_dispatched"] <= 0:
+            continue
+        sb.table("dispatch_lines").insert({
+            "dn_id": dn_id,
+            "so_line_id": line["so_line_id"],
+            "item_id": line["item_id"],
+            "qty_dispatched": line["qty_dispatched"]
+        }).execute()
+        # Update SO line dispatched qty
+        so_line_res = sb.table("so_lines").select("qty_ordered, qty_dispatched").eq("id", line["so_line_id"]).execute()
+        sl = so_line_res.data[0]
+        new_dispatched = sl["qty_dispatched"] + line["qty_dispatched"]
+        sb.table("so_lines").update({"qty_dispatched": new_dispatched}).eq("id", line["so_line_id"]).execute()
+        if new_dispatched < sl["qty_ordered"]:
+            all_fulfilled = False
+        # Deduct from FG stock
+        item_res = sb.table("items").select("current_stock").eq("id", line["item_id"]).execute()
+        cur = item_res.data[0]["current_stock"]
+        sb.table("items").update({"current_stock": cur - line["qty_dispatched"]}).eq("id", line["item_id"]).execute()
+        # Log movement
+        sb.table("stock_movements").insert({
+            "item_id": line["item_id"],
+            "movement_type": "Issue",
+            "qty": -line["qty_dispatched"],
+            "reference": dn_num,
+            "remarks": f"Dispatched against {line.get('so_number', '')}",
+            "movement_date": str(dispatch_date)
+        }).execute()
+
+    # Update SO status
+    so_lines_res = sb.table("so_lines").select("qty_ordered, qty_dispatched").eq("so_id", so_id).execute()
+    all_done = all(l["qty_dispatched"] >= l["qty_ordered"] for l in so_lines_res.data)
+    any_done = any(l["qty_dispatched"] > 0 for l in so_lines_res.data)
+    status = "Fulfilled" if all_done else ("Partial" if any_done else "Open")
+    sb.table("sales_orders").update({"status": status}).eq("id", so_id).execute()
+
+    return dn_num
+
+
+# ── Dashboard KPIs update (sales added) ──────────────────────────────────────
+
+def get_sales_kpis() -> dict:
+    sb = get_supabase()
+    so_res = sb.table("sales_orders").select("status, total_value").execute()
+    sos = so_res.data or []
+    open_so_count = sum(1 for s in sos if s["status"] in ("Open", "Partial"))
+    open_so_value = sum(s["total_value"] for s in sos if s["status"] in ("Open", "Partial"))
+    fulfilled_value = sum(s["total_value"] for s in sos if s["status"] == "Fulfilled")
+    return {
+        "open_so_count": open_so_count,
+        "open_so_value": open_so_value,
+        "fulfilled_value": fulfilled_value
     }
