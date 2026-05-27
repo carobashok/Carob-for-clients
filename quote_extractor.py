@@ -355,44 +355,27 @@ def generate_quote_excel(email: dict, fields: dict, folder_url: str = "") -> byt
         wb = openpyxl.load_workbook(template_path, keep_vba=False, data_only=False)
         wb.template = False  # convert from template to regular workbook
 
-        # Fill WORK OUT sheet — drives formulas in Fallow up and Qtn_table1
-        if "WORK OUT" in wb.sheetnames:
-            wo = wb["WORK OUT"]
-            customer_name = fields.get("customer_name") or ""
-            company_name  = fields.get("company_name") or ""
-            address       = fields.get("address") or fields.get("location") or ""
-            # D2 — Name & Address block (merged D2:J4)
-            wo["D2"] = " | ".join(filter(None, [company_name, customer_name, address]))
-            wo["N2"] = customer_name           # Enquired By → Fallow up E3
-            wo["N3"] = fields.get("phone") or ""   # Phone → Fallow up F3
-            wo["N4"] = fields.get("customer_email") or ""  # Mail ID → Fallow up G3
-
-        # Fill Qtn_table1 sheet
+        # Fill Qtn_table1 — address and GST only
         if "Qtn_table1" in wb.sheetnames:
             ws = wb["Qtn_table1"]
-            customer_name = fields.get("customer_name") or ""
-            company_name  = fields.get("company_name") or ""
-            address       = fields.get("address") or fields.get("location") or ""
-
-            ws["L4"]  = datetime.now().strftime("%d-%b-%Y")   # Mail Date
-            ws["L6"]  = fields.get("customer_email") or ""    # Mail ID
-            ws["K8"]  = company_name or customer_name          # Company Name (merged K8:M8)
-            ws["L10"] = address                                # Address
-            ws["C9"]  = company_name or customer_name          # Quote To
-            ws["C10"] = address
-
-            # GST Number — Q14 (P14 is the label "GST#")
-            gst = fields.get("gst_number") or ""
+            address = fields.get("address") or fields.get("location") or ""
+            gst     = fields.get("gst_number") or ""
+            if address:
+                ws["L10"] = address   # Address
             if gst:
-                ws["Q14"] = gst
+                ws["Q14"] = gst       # GST Number
 
-        # Fill Fallow up — Drive link in I3
-        if "Fallow up" in wb.sheetnames and folder_url:
+        # Fill Fallow up — customer details + Drive link directly
+        if "Fallow up" in wb.sheetnames:
             from openpyxl.styles import Font as XLFont
             fu = wb["Fallow up"]
-            fu["I3"] = "Open Folder"
-            fu["I3"].hyperlink = folder_url
-            fu["I3"].font = XLFont(color="0563C1", underline="single", name="Arial", size=10)
+            fu["E3"] = fields.get("customer_name") or ""    # Kind Attn
+            fu["F3"] = fields.get("phone") or ""            # Phone
+            fu["G3"] = fields.get("customer_email") or ""   # Mail ID
+            if folder_url:
+                fu["I3"] = "Open Folder"
+                fu["I3"].hyperlink = folder_url
+                fu["I3"].font = XLFont(color="0563C1", underline="single", name="Arial", size=10)
 
         # Save to bytes
         buf = io.BytesIO()
