@@ -11,8 +11,8 @@ from datetime import date
 
 @st.cache_resource
 def get_supabase() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
+    url = st.secrets["supabase"]["url"]
+    key = st.secrets["supabase"]["key"]
     return create_client(url, key)
 
 
@@ -282,12 +282,12 @@ def get_dashboard_kpis() -> dict:
 
 def get_all_customers() -> pd.DataFrame:
     sb = get_supabase()
-    res = sb.table("customers").select("*").order("name").execute()
+    res = sb.table("customers").select("*").order("customer_name").execute()
     return pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
 def get_customer_options() -> list:
     sb = get_supabase()
-    res = sb.table("customers").select("id, name, city").order("name").execute()
+    res = sb.table("customers").select("customer_id, customer_name, city").order("customer_name").execute()
     return res.data if res.data else []
 
 def add_customer(data: dict):
