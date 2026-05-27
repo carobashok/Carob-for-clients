@@ -57,7 +57,7 @@ def show():
                 "unit": "Unit", "current_stock": "In Stock",
                 "reorder_level": "Reorder At", "reorder_qty": "Reorder Qty",
                 "unit_cost": "Unit Cost (₹)", "stock_value": "Stock Value (₹)",
-                "stock_status": "Status", "supplier_name": "Supplier"
+                "stock_status": "Status", "supplier_name": "Preferred Supplier"
             }),
             use_container_width=True,
             hide_index=True,
