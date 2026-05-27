@@ -423,31 +423,47 @@ def generate_quote_excel(email: dict, fields: dict, folder_url: str = "") -> byt
         return buf.read()
 
 
+def create_attachment_subfolder(drive_service, parent_folder_id: str, direction: str) -> str:
+    """Create a dated subfolder for attachments. direction: incoming or outgoing."""
+    dt_str      = datetime.now().strftime("%Y-%m-%d_%H%M")
+    folder_name = f"{dt_str}_{direction}"
+    meta = {
+        "name":     folder_name,
+        "mimeType": "application/vnd.google-apps.folder",
+        "parents":  [parent_folder_id],
+    }
+    folder = drive_service.files().create(body=meta, fields="id").execute()
+    return folder.get("id")
+
+
 def save_to_drive(service, email: dict, fields: dict) -> tuple[str, int]:
-    """Create Drive folder, upload attachments + Excel. Returns (folder_url, att_count)."""
+    """Create Drive folder, upload attachments in subfolder + Excel. Returns (folder_url, att_count)."""
     try:
         drive_service = get_drive_service()
-        date_str      = datetime.now().strftime("%Y-%m-%d")
-        safe_name     = re.sub('[^a-zA-Z0-9 _-]', '', fields.get('customer_name') or 'Unknown').strip().replace(' ', '_')
-        folder_name   = f"{date_str}_{safe_name}"
+        dt_str        = datetime.now().strftime("%Y-%m-%d_%H%M")
+        safe_name     = re.sub("[^a-zA-Z0-9 _-]", "", fields.get("customer_name") or "Unknown").strip().replace(" ", "_")
+        folder_name   = f"{dt_str}_{safe_name}"
         folder_id, folder_url = create_drive_folder(drive_service, folder_name)
 
-        # Upload Excel summary
+        # Upload Quote Template at root of quote folder
         excel_bytes = generate_quote_excel(email, fields, folder_url)
         upload_bytes_to_drive(drive_service, folder_id, "Quote_Template.xlsx", excel_bytes,
                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-        # Upload email attachments
-        att_count = 0
-        for att in email.get("attachments", []):
-            if not att.get("attachment_id"):
-                continue
-            try:
-                data = download_attachment(service, email["id"], att["attachment_id"])
-                upload_bytes_to_drive(drive_service, folder_id, att["filename"], data, att.get("mime_type", ""))
-                att_count += 1
-            except Exception as e:
-                st.warning(f"Could not upload {att['filename']}: {e}")
+        # Upload email attachments in dated incoming subfolder
+        att_count   = 0
+        attachments = email.get("attachments", [])
+        if attachments:
+            sub_folder_id = create_attachment_subfolder(drive_service, folder_id, "incoming")
+            for att in attachments:
+                if not att.get("attachment_id"):
+                    continue
+                try:
+                    data = download_attachment(service, email["id"], att["attachment_id"])
+                    upload_bytes_to_drive(drive_service, sub_folder_id, att["filename"], data, att.get("mime_type", ""))
+                    att_count += 1
+                except Exception as e:
+                    st.warning(f"Could not upload {att['filename']}: {e}")
 
         return folder_url, att_count
 
@@ -673,7 +689,7 @@ def sync_sent_replies(service, supabase: Client) -> int:
             try:
                 drive_service = get_drive_service()
                 folder_id     = folder_url.split("/")[-1]
-                sub_folder_id = create_attachment_subfolder(drive_service, folder_id, email, "outgoing")
+                sub_folder_id = create_attachment_subfolder(drive_service, folder_id, "outgoing")
                 for att in email["attachments"]:
                     if not att.get("attachment_id"):
                         continue
