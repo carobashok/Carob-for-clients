@@ -123,7 +123,8 @@ with st.sidebar:
 
     page = st.radio(
         "Navigation",
-        ["📊 Dashboard", "📦 Inventory", "🛒 Purchase Orders", "🏭 Production", "📋 Stock Ledger"],
+        ["📊 Dashboard", "📦 Inventory", "🛒 Purchase Orders", "🏭 Production",
+         "🚚 Sales & Dispatch", "📋 Stock Ledger"],
         label_visibility="collapsed"
     )
 
@@ -137,9 +138,6 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 # ── Route pages ──────────────────────────────────────────────────────────────
-import sys, os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
 if page == "📊 Dashboard":
     from pages.dashboard import show
     show()
@@ -151,6 +149,9 @@ elif page == "🛒 Purchase Orders":
     show()
 elif page == "🏭 Production":
     from pages.production import show
+    show()
+elif page == "🚚 Sales & Dispatch":
+    from pages.sales_dispatch import show
     show()
 elif page == "📋 Stock Ledger":
     from pages.stock_ledger import show
