@@ -47,7 +47,7 @@ SCOPES = [
 ]
 
 
-EXTRACTION_PROMPT = """You are a quote request extractor for {app_name}.
+EXTRACTION_PROMPT = """You are a quote request extractor for Carob Technologies, an AI and analytics company based in Chennai, India.
 
 Extract information from the email below and return ONLY a valid JSON object — no explanation, no markdown, no extra text, no code fences.
 
@@ -56,8 +56,6 @@ Fields to extract:
 - customer_email: email address of the original sender (string or null)
 - company_name: company or organisation name if mentioned (string or null)
 - phone: phone number if mentioned (string or null)
-- address: full postal address if mentioned — include door number, street, area, city, pincode (string or null)
-- gst_number: GST registration number if mentioned — typically starts with state code digits (string or null)
 - product_description: what product or service they are asking about — summarise clearly (string)
 - quantity: number of units, licences, projects, etc. (string or null)
 - unit: unit type e.g. units, licences, nos, projects (string or null)
@@ -110,14 +108,6 @@ def get_app_name() -> str:
         return st.secrets["APP_NAME"]
     except Exception:
         return "Carob Technologies"
-
-
-def get_email_provider() -> str:
-    """Return email provider from secrets. Must be explicitly set. Supports: gmail, o365"""
-    if "EMAIL_PROVIDER" not in st.secrets:
-        st.error("EMAIL_PROVIDER is not set in secrets. Please add EMAIL_PROVIDER = \"gmail\" to your secrets.toml.")
-        st.stop()
-    return st.secrets["EMAIL_PROVIDER"].lower()
 
 
 def get_followup_tracker_id() -> str:
@@ -363,37 +353,47 @@ def generate_quote_excel(email: dict, fields: dict, folder_url: str = "") -> byt
         wb = openpyxl.load_workbook(template_path, keep_vba=False, data_only=False)
         wb.template = False  # convert from template to regular workbook
 
-        # Fill Qtn_table1 — address and GST only
         if "Qtn_table1" in wb.sheetnames:
-            from openpyxl.styles import Alignment as XLAlign
-            ws  = wb["Qtn_table1"]
-            address = fields.get("address") or fields.get("location") or ""
-            gst     = fields.get("gst_number") or ""
-            if address:
-                # Merge L10:O13 and fill with address
-                parts = [p.strip() for p in address.split(",") if p.strip()]
-                # Unmerge first if already merged
-                for merge in list(ws.merged_cells.ranges):
-                    if merge.min_row <= 11 <= merge.max_row and merge.min_col <= 11 <= merge.max_col:
-                        ws.unmerge_cells(str(merge))
-                ws.merge_cells("K11:O14")
-                cell = ws["K11"]
-                cell.value     = "\n".join(parts)
-                cell.alignment = XLAlign(wrap_text=True, vertical="top")
-            if gst:
-                ws["Q14"] = gst       # GST Number
+            ws = wb["Qtn_table1"]
 
-        # Fill Fallow up — customer details + Drive link directly
-        if "Fallow up" in wb.sheetnames:
+            # Mail Date — L4 (not merged)
+            ws["L4"] = datetime.now().strftime("%d-%b-%Y")
+
+            # Mail ID (customer email) — L6 (not merged)
+            ws["L6"] = fields.get("customer_email") or ""
+
+            # Company Name — K8 (K8:M8 is merged, write to top-left K8)
+            ws["K8"] = fields.get("company_name") or fields.get("customer_name") or ""
+
+            # Address — L10 (not merged)
+            ws["L10"] = fields.get("location") or ""
+
+            # Contact Person Name — L15 (not merged)
+            ws["L15"] = fields.get("customer_name") or ""
+
+            # Phone Numbers — L17 (not merged)
+            ws["L17"] = fields.get("phone") or ""
+
+            # Quote To left side — C9 (K9:O9 merged, C9 is separate)
+            customer_name = fields.get("customer_name") or ""
+            company_name  = fields.get("company_name") or ""
+            ws["C9"]  = company_name or customer_name
+            ws["C10"] = fields.get("location") or ""
+
+        # Also fill WORK OUT sheet — feeds into Fallow up sheet via formulas
+        if "WORK OUT" in wb.sheetnames:
+            wo = wb["WORK OUT"]
+            wo["N2"] = fields.get("customer_name") or ""   # Kind Attn → Fallow up E3
+            wo["N3"] = fields.get("phone") or ""           # Phone     → Fallow up F3
+            wo["N4"] = fields.get("customer_email") or ""  # Mail ID   → Fallow up G3
+
+        # Fill Fallow up Link column I3 with clickable hyperlink
+        if "Fallow up" in wb.sheetnames and folder_url:
             from openpyxl.styles import Font as XLFont
             fu = wb["Fallow up"]
-            fu["E3"] = fields.get("customer_name") or ""    # Kind Attn
-            fu["F3"] = fields.get("phone") or ""            # Phone
-            fu["G3"] = fields.get("customer_email") or ""   # Mail ID
-            if folder_url:
-                fu["I3"] = "Open Folder"
-                fu["I3"].hyperlink = folder_url
-                fu["I3"].font = XLFont(color="0563C1", underline="single", name="Arial", size=10)
+            fu["I3"] = "Open Folder"
+            fu["I3"].hyperlink = folder_url
+            fu["I3"].font = XLFont(color="0563C1", underline="single", name="Arial", size=10)
 
         # Save to bytes
         buf = io.BytesIO()
@@ -431,47 +431,31 @@ def generate_quote_excel(email: dict, fields: dict, folder_url: str = "") -> byt
         return buf.read()
 
 
-def create_attachment_subfolder(drive_service, parent_folder_id: str, direction: str) -> str:
-    """Create a dated subfolder for attachments. direction: incoming or outgoing."""
-    dt_str      = datetime.now().strftime("%Y-%m-%d_%H%M")
-    folder_name = f"{dt_str}_{direction}"
-    meta = {
-        "name":     folder_name,
-        "mimeType": "application/vnd.google-apps.folder",
-        "parents":  [parent_folder_id],
-    }
-    folder = drive_service.files().create(body=meta, fields="id").execute()
-    return folder.get("id")
-
-
 def save_to_drive(service, email: dict, fields: dict) -> tuple[str, int]:
-    """Create Drive folder, upload attachments in subfolder + Excel. Returns (folder_url, att_count)."""
+    """Create Drive folder, upload attachments + Excel. Returns (folder_url, att_count)."""
     try:
         drive_service = get_drive_service()
-        dt_str        = datetime.now().strftime("%Y-%m-%d_%H%M")
-        safe_name     = re.sub("[^a-zA-Z0-9 _-]", "", fields.get("customer_name") or "Unknown").strip().replace(" ", "_")
-        folder_name   = f"{dt_str}_{safe_name}"
+        date_str      = datetime.now().strftime("%Y-%m-%d")
+        safe_name     = re.sub('[^a-zA-Z0-9 _-]', '', fields.get('customer_name') or 'Unknown').strip().replace(' ', '_')
+        folder_name   = f"{date_str}_{safe_name}"
         folder_id, folder_url = create_drive_folder(drive_service, folder_name)
 
-        # Upload Quote Template at root of quote folder
+        # Upload Excel summary
         excel_bytes = generate_quote_excel(email, fields, folder_url)
         upload_bytes_to_drive(drive_service, folder_id, "Quote_Template.xlsx", excel_bytes,
                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-        # Upload email attachments in dated incoming subfolder
-        att_count   = 0
-        attachments = email.get("attachments", [])
-        if attachments:
-            sub_folder_id = create_attachment_subfolder(drive_service, folder_id, "incoming")
-            for att in attachments:
-                if not att.get("attachment_id"):
-                    continue
-                try:
-                    data = download_attachment(service, email["id"], att["attachment_id"])
-                    upload_bytes_to_drive(drive_service, sub_folder_id, att["filename"], data, att.get("mime_type", ""))
-                    att_count += 1
-                except Exception as e:
-                    st.warning(f"Could not upload {att['filename']}: {e}")
+        # Upload email attachments
+        att_count = 0
+        for att in email.get("attachments", []):
+            if not att.get("attachment_id"):
+                continue
+            try:
+                data = download_attachment(service, email["id"], att["attachment_id"])
+                upload_bytes_to_drive(drive_service, folder_id, att["filename"], data, att.get("mime_type", ""), timestamp=True)
+                att_count += 1
+            except Exception as e:
+                st.warning(f"Could not upload {att['filename']}: {e}")
 
         return folder_url, att_count
 
@@ -690,23 +674,24 @@ def sync_sent_replies(service, supabase: Client) -> int:
         }
         conv_log.append(conv_entry)
 
-        # Upload sent attachments in dated outgoing subfolder
+        # Upload revised attachments to same Drive folder with timestamp
         att_uploaded = 0
         folder_url   = row.get("attachment_folder", "")
         if email.get("attachments") and folder_url:
             try:
                 drive_service = get_drive_service()
-                folder_id     = folder_url.split("/")[-1]
-                sub_folder_id = create_attachment_subfolder(drive_service, folder_id, "outgoing")
+                # Extract folder_id from URL
+                folder_id = folder_url.split("/")[-1]
                 for att in email["attachments"]:
                     if not att.get("attachment_id"):
                         continue
                     try:
                         data = download_attachment(service, email["id"], att["attachment_id"])
                         upload_bytes_to_drive(
-                            drive_service, sub_folder_id,
+                            drive_service, folder_id,
                             att["filename"], data,
-                            att.get("mime_type", "")
+                            att.get("mime_type", ""),
+                            timestamp=True  # add timestamp to avoid overwrite
                         )
                         att_uploaded += 1
                     except Exception:
@@ -823,7 +808,6 @@ def extract_quote_fields(email: dict) -> dict | None:
         return None
     client = anthropic.Anthropic(api_key=api_key)
     prompt = EXTRACTION_PROMPT.format(
-        app_name=get_app_name(),
         subject=email["subject"],
         sender=email["sender"],
         body=email["body"][:4000],
@@ -929,22 +913,11 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("📬 QuoteDesk")
-st.caption(f"Mail to Order · {get_app_name()} · Powered by Carob Technologies")
-
-# Validate email provider
-_supported_providers = ["gmail"]
-_provider = get_email_provider()
-if _provider not in _supported_providers:
-    st.error(
-        f"EMAIL_PROVIDER = '{_provider}' is not supported yet. "
-        f"Supported providers: {', '.join(_supported_providers)}. "
-        f"Please update your secrets.toml."
-    )
-    st.stop()
+st.title("📬 Quote Request Extractor")
+st.caption(f"{get_app_name()} · Gmail → Claude → Supabase")
 
 
-tab_inbox, tab_quotes, tab_analytics, tab_followup, tab_settings = st.tabs(["📬 Inbox", "📋 Quote Requests", "📊 Analytics", "📊 Track Status", "⚙️ Settings"])
+tab_inbox, tab_quotes, tab_analytics, tab_followup, tab_settings = st.tabs(["📬 Inbox", "📋 Quote Requests", "📊 Analytics", "🔔 Follow Up", "⚙️ Settings"])
 
 
 # ── Tab 1: Inbox ───────────────────────────────────────────────────────────────
@@ -1445,7 +1418,7 @@ with tab_analytics:
 with tab_followup:
     supabase = get_supabase()
 
-    st.markdown("### 📊 Track Status")
+    st.markdown("### 🔔 Follow Up Tracker")
 
     # Filters
     col_f1, col_f2, col_f3 = st.columns([2, 2, 1])
