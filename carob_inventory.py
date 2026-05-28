@@ -65,7 +65,7 @@ st.markdown("""
         font-family: 'Cormorant Garamond', serif;
         font-size: 2rem;
         font-weight: 700;
-        color: #0D1B2A;
+        color: #C9A84C;
         margin-bottom: 4px;
     }
     .carob-subtitle {
