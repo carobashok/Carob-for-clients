@@ -485,9 +485,11 @@ def save_to_drive(service, email: dict, fields: dict) -> tuple[str, int]:
     """Create Drive folder, upload attachments in subfolder + Excel. Returns (folder_url, att_count)."""
     try:
         drive_service = get_drive_service()
-        dt_str        = datetime.now().strftime("%Y-%m-%d_%H%M")
-        safe_name     = re.sub("[^a-zA-Z0-9 _-]", "", fields.get("customer_name") or "Unknown").strip().replace(" ", "_")
-        folder_name   = f"{dt_str}_{safe_name}"
+        date_str    = datetime.now().strftime("%Y-%m-%d")
+        # Use company name if available, else email ID, then customer name
+        name_part   = fields.get("company_name") or fields.get("customer_email") or fields.get("customer_name") or "Unknown"
+        safe_name   = re.sub("[^a-zA-Z0-9 _@.-]", "", name_part).strip().replace(" ", "_").replace("@", "_").replace(".", "_")
+        folder_name = f"{safe_name}_{date_str}"
         folder_id, folder_url = create_drive_folder(drive_service, folder_name)
 
         # Upload Quote Template at root of quote folder
