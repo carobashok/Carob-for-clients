@@ -1219,7 +1219,33 @@ with tab_quotes:
                     if row.get("attachment_folder"):
                         st.markdown("**Attachments**")
                         if row.get("attachment_folder"):
-                            st.markdown(f"[📁 Open in Google Drive]({row['attachment_folder']})")
+                            folder_url   = row["attachment_folder"]
+                            folder_id    = folder_url.split("/")[-1]
+                            desktop_url  = f"googledrive://drive/folders/{folder_id}"
+                            drive_js     = f"""
+<a href="#" onclick="
+    var opened = false;
+    var desktop = window.open('{desktop_url}', '_self');
+    setTimeout(function() {{
+        if (!opened) {{
+            window.open('{folder_url}', '_blank');
+        }}
+    }}, 1500);
+    opened = true;
+    return false;
+" style="
+    display: inline-block;
+    padding: 4px 12px;
+    background: #1F4E79;
+    color: white;
+    border-radius: 6px;
+    text-decoration: none;
+    font-size: 13px;
+    font-family: Arial;
+">📁 Open Folder</a>
+"""
+                            import streamlit.components.v1 as components
+                            components.html(drive_js, height=40)
                         st.write(f"📎 {row.get('attachment_count', 0)} attachment(s) + Quote_Template.xlsx")
 
                 with right:
