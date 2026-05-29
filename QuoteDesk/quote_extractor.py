@@ -355,7 +355,9 @@ def generate_quote_excel(email: dict, fields: dict, folder_url: str = "") -> byt
     """
     # Find template file — any .xltx in current directory
     import glob
-    xltx_files = glob.glob("*.xltx")
+    import os
+    xltx_files = glob.glob("*.xltx") + glob.glob("**/*.xltx", recursive=True)
+    xltx_files  = [os.path.abspath(f) for f in xltx_files]
     template_path = xltx_files[0] if xltx_files else None
 
     if template_path:
