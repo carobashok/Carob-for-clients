@@ -404,18 +404,21 @@ def generate_quote_excel(email: dict, fields: dict, folder_url: str = "") -> byt
         return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
     def inject(xml_str, cell_ref, value):
+        """Inject text value into cell using inlineStr format to avoid shared string lookup."""
         val = esc(value)
-        # Self-closing cell
+        # Self-closing or existing cell — replace entirely with inlineStr
         m = re.search(rf'<c r="{re.escape(cell_ref)}"([^>]*)/>', xml_str)
         if m:
             attrs = re.sub(r' t="[^"]*"', "", m.group(1))
-            return xml_str[:m.start()] + f'<c r="{cell_ref}"{attrs}><v>{val}</v></c>' + xml_str[m.end():]
-        # Cell with content
+            new_cell = f'<c r="{cell_ref}"{attrs} t="inlineStr"><is><t>{val}</t></is></c>'
+            return xml_str[:m.start()] + new_cell + xml_str[m.end():]
+        # Cell with existing content
         m = re.search(rf'<c r="{re.escape(cell_ref)}"([^>]*)>(.*?)</c>', xml_str, re.DOTALL)
         if m:
             attrs = re.sub(r' t="[^"]*"', "", m.group(1))
-            return xml_str[:m.start()] + f'<c r="{cell_ref}"{attrs}><v>{val}</v></c>' + xml_str[m.end():]
-        # Insert into row
+            new_cell = f'<c r="{cell_ref}"{attrs} t="inlineStr"><is><t>{val}</t></is></c>'
+            return xml_str[:m.start()] + new_cell + xml_str[m.end():]
+        # Cell not found — insert into row
         row_num = re.match(r"[A-Za-z]+(\d+)", cell_ref).group(1)
         rm = re.search(rf'(<row r="{row_num}"[^>]*>)(.*?)(</row>)', xml_str, re.DOTALL)
         if rm:
@@ -431,13 +434,13 @@ def generate_quote_excel(email: dict, fields: dict, folder_url: str = "") -> byt
 
                 if item.filename == "xl/worksheets/sheet2.xml":
                     xml = data.decode("utf-8")
-                    xml = inject(xml, "L4",  datetime.now().strftime("%d-%b-%Y"))
-                    if cust_email: xml = inject(xml, "L6",  cust_email)
-                    if company:    xml = inject(xml, "K8",  company)
-                    if addr_parts: xml = inject(xml, "K11", addr_parts)
-                    if cust_name:  xml = inject(xml, "L15", cust_name)
-                    if phone:      xml = inject(xml, "K18", phone)
-                    if gst:        xml = inject(xml, "Q14", gst)
+                    xml = inject(xml, "L4",  datetime.now().strftime("%d-%b-%Y"))  # Mail Date
+                    if cust_email: xml = inject(xml, "K7",  cust_email)   # Mail ID (below K6 label)
+                    if company:    xml = inject(xml, "K9",  company)      # Company Name (below K8 label)
+                    if addr_parts: xml = inject(xml, "K11", addr_parts)   # Address (K11:O14 merged)
+                    if gst:        xml = inject(xml, "Q14", gst)          # GST# (next to P14 label)
+                    if cust_name:  xml = inject(xml, "K16", cust_name)    # Contact Person (below K15 label)
+                    if phone:      xml = inject(xml, "K18", phone)        # Phone Numbers (below K17 label)
                     data = xml.encode("utf-8")
 
                 elif item.filename == "xl/drawings/vmlDrawing1.vml":
