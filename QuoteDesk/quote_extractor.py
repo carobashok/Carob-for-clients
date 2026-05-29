@@ -905,8 +905,8 @@ st.title("📬 QuoteDesk")
 st.caption(f"Mail to Order · {get_app_name()} · Powered by Carob Technologies")
 
 # Template debug — remove after fixing
-import os as _os
-_xltx = glob.glob("*.xltx") + glob.glob("**/*.xltx", recursive=True)
+import os as _os, glob as _glob
+_xltx = _glob.glob("*.xltx") + _glob.glob("**/*.xltx", recursive=True)
 st.info(f"🔧 Template debug — CWD: {_os.getcwd()} | xltx files: {_xltx} | all files: {_os.listdir('.')}")
 
 # Validate email provider
