@@ -904,6 +904,11 @@ st.set_page_config(
 st.title("📬 QuoteDesk")
 st.caption(f"Mail to Order · {get_app_name()} · Powered by Carob Technologies")
 
+# Template debug — remove after fixing
+import os as _os
+_xltx = glob.glob("*.xltx") + glob.glob("**/*.xltx", recursive=True)
+st.info(f"🔧 Template debug — CWD: {_os.getcwd()} | xltx files: {_xltx} | all files: {_os.listdir('.')}")
+
 # Validate email provider
 _supported_providers = ["gmail"]
 _provider = get_email_provider()
