@@ -1229,7 +1229,7 @@ with tab_quotes:
                     if row.get("notes"):
                         st.write(f"Notes : {row['notes']}")
                     if row.get("last_reply_at"):
-                        st.write(f"Last reply   : {row['last_reply_at'][:16].replace('T',' ')}")
+                        st.write(f"Last reply   : {to_ist(row.get('last_reply_at', ''))}")
 
                     st.markdown("**Update Status**")
                     new_status = st.selectbox(
@@ -1470,7 +1470,7 @@ with tab_analytics:
                 table_rows.append({
                     "Customer Email":   row.get("customer_email") or "—",
                     "Product/Service":  (row.get("product_description") or "—")[:50],
-                    "Date of Request":  row.get("created_at").strftime("%d %b %Y") if pd.notnull(row.get("created_at")) else "—",
+                    "Date of Request":  to_ist(str(row.get("created_at", ""))).split(",")[0] if row.get("created_at") else "—",
                     "Date of Reply":    pd.to_datetime(sent_ts, utc=True).strftime("%d %b %Y") if sent_ts else "—",
                     "Response Time":    resp_str,
                     "Status":           row.get("status", "—"),
@@ -1623,7 +1623,7 @@ with tab_followup:
                     st.markdown("---")
                     st.markdown(f"**📋 Follow Up History ({len(notes_log)} entries)**")
                     for entry in reversed(notes_log):
-                        ts     = entry.get("timestamp", "")[:16].replace("T", " ")
+                        ts     = to_ist(entry.get("timestamp", ""))
                         status = entry.get("status", "")
                         note   = entry.get("note", "")
                         icon   = FOLLOWUP_COLORS.get(status, "⚪")
