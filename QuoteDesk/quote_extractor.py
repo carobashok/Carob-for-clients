@@ -434,7 +434,7 @@ def generate_quote_excel(email: dict, fields: dict, folder_url: str = "") -> byt
 
                 if item.filename == "xl/worksheets/sheet2.xml":
                     xml = data.decode("utf-8")
-                    xml = inject(xml, "L4",  datetime.now().strftime("%d-%b-%Y"))  # Mail Date
+                    xml = inject(xml, "K5",  datetime.now().strftime("%d-%b-%Y"))  # Mail Date
                     if cust_email: xml = inject(xml, "K7",  cust_email)   # Mail ID (below K6 label)
                     if company:    xml = inject(xml, "K9",  company)      # Company Name (below K8 label)
                     if addr_parts: xml = inject(xml, "K11", addr_parts)   # Address (K11:O14 merged)
