@@ -350,59 +350,119 @@ def upload_bytes_to_drive(drive_service, folder_id: str, filename: str, data: by
 
 def generate_quote_excel(email: dict, fields: dict, folder_url: str = "") -> bytes:
     """
-    Fill customer details into template.xltx if available,
-    otherwise generate a simple summary Excel. Returns bytes.
+    Fill Qtn_table1 right side using zip/XML approach.
+    Preserves all comments, formatting and metadata from original template.
+    Falls back to simple summary if no template found.
     """
-    # Find template file — any .xltx in current directory
-    import glob
-    import os
-    xltx_files = glob.glob("*.xltx") + glob.glob("**/*.xltx", recursive=True)
-    xltx_files  = [os.path.abspath(f) for f in xltx_files]
-    template_path = xltx_files[0] if xltx_files else None
+    import zipfile as _zf
+    import glob as _glob
+    import os as _os
 
-    if template_path:
-        # Load the customer template — keep_vba handles xltx conversion
-        wb = openpyxl.load_workbook(template_path, keep_vba=False, data_only=False)
-        wb.template = False  # convert from template to regular workbook
+    # Find template file recursively
+    xltx_files = _glob.glob("*.xltx") + _glob.glob("**/*.xltx", recursive=True)
+    xltx_files  = [_os.path.abspath(f) for f in xltx_files]
 
-        # Fill Qtn_table1 right side only — using zip/XML directly for accuracy
-        # (handled in zip loop below — see sheet2.xml section)
-        pass  # placeholder — actual filling done in zip loop
-
-        # Save to bytes
-        buf = io.BytesIO()
-        wb.save(buf)
-        buf.seek(0)
-        return buf.read()
-
-    else:
-        # Fallback — generate simple summary if template not found
+    if not xltx_files:
+        # Fallback summary
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Quote Request"
         ws["A1"] = "QUOTE REQUEST SUMMARY"
         ws["A2"] = f"Generated: {datetime.now().strftime('%d %b %Y, %I:%M %p')}"
         rows = [
-            ("Customer Name",    fields.get("customer_name")),
-            ("Email",            fields.get("customer_email")),
-            ("Company",          fields.get("company_name")),
-            ("Phone",            fields.get("phone")),
-            ("Product",          fields.get("product_description")),
-            ("Quantity",         f"{fields.get('quantity') or ''} {fields.get('unit') or ''}".strip()),
-            ("Deadline",         fields.get("deadline")),
-            ("Location",         fields.get("location")),
-            ("Urgency",          fields.get("urgency_level")),
-            ("Notes",            fields.get("notes")),
-            ("Email Subject",    email.get("subject")),
-            ("Received From",    email.get("sender")),
+            ("Customer Name", fields.get("customer_name")),
+            ("Email",         fields.get("customer_email")),
+            ("Company",       fields.get("company_name")),
+            ("Phone",         fields.get("phone")),
+            ("Address",       fields.get("address")),
+            ("GST Number",    fields.get("gst_number")),
+            ("Product",       fields.get("product_description")),
+            ("Quantity",      f"{fields.get('quantity') or ''} {fields.get('unit') or ''}".strip()),
+            ("Deadline",      fields.get("deadline")),
+            ("Urgency",       fields.get("urgency_level")),
+            ("Notes",         fields.get("notes")),
         ]
         for i, (label, value) in enumerate(rows, start=4):
             ws[f"A{i}"] = label
             ws[f"B{i}"] = value or "—"
         buf = io.BytesIO()
         wb.save(buf)
-        buf.seek(0)
         return buf.read()
+
+    template_bytes = open(xltx_files[0], "rb").read()
+
+    # Prepare values
+    cust_name  = fields.get("customer_name") or ""
+    cust_email = fields.get("customer_email") or ""
+    company    = fields.get("company_name") or cust_name
+    phone      = fields.get("phone") or ""
+    gst        = fields.get("gst_number") or ""
+    address    = fields.get("address") or fields.get("location") or ""
+    addr_parts = ", ".join([p.strip() for p in address.split(",") if p.strip()])
+
+    def esc(s):
+        return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+    def inject(xml_str, cell_ref, value):
+        val = esc(value)
+        # Self-closing cell
+        m = re.search(rf'<c r="{re.escape(cell_ref)}"([^>]*)/>', xml_str)
+        if m:
+            attrs = re.sub(r' t="[^"]*"', "", m.group(1))
+            return xml_str[:m.start()] + f'<c r="{cell_ref}"{attrs}><v>{val}</v></c>' + xml_str[m.end():]
+        # Cell with content
+        m = re.search(rf'<c r="{re.escape(cell_ref)}"([^>]*)>(.*?)</c>', xml_str, re.DOTALL)
+        if m:
+            attrs = re.sub(r' t="[^"]*"', "", m.group(1))
+            return xml_str[:m.start()] + f'<c r="{cell_ref}"{attrs}><v>{val}</v></c>' + xml_str[m.end():]
+        # Insert into row
+        row_num = re.match(r"[A-Za-z]+(\d+)", cell_ref).group(1)
+        rm = re.search(rf'(<row r="{row_num}"[^>]*>)(.*?)(</row>)', xml_str, re.DOTALL)
+        if rm:
+            new_c = f'<c r="{cell_ref}" t="inlineStr"><is><t>{val}</t></is></c>'
+            return xml_str[:rm.start()] + rm.group(1) + rm.group(2) + new_c + rm.group(3) + xml_str[rm.end():]
+        return xml_str
+
+    out_buf = io.BytesIO()
+    with _zf.ZipFile(io.BytesIO(template_bytes), "r") as zin:
+        with _zf.ZipFile(out_buf, "w", _zf.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                data = zin.read(item.filename)
+
+                if item.filename == "xl/worksheets/sheet2.xml":
+                    xml = data.decode("utf-8")
+                    xml = inject(xml, "L4",  datetime.now().strftime("%d-%b-%Y"))
+                    if cust_email: xml = inject(xml, "L6",  cust_email)
+                    if company:    xml = inject(xml, "K8",  company)
+                    if addr_parts: xml = inject(xml, "K11", addr_parts)
+                    if cust_name:  xml = inject(xml, "L15", cust_name)
+                    if phone:      xml = inject(xml, "K18", phone)
+                    if gst:        xml = inject(xml, "Q14", gst)
+                    data = xml.encode("utf-8")
+
+                elif item.filename == "xl/drawings/vmlDrawing1.vml":
+                    xml = data.decode("utf-8")
+                    xml = xml.replace("height:325.5pt", "height:500pt")
+                    xml = xml.replace("width:141.5pt",  "width:200pt")
+                    data = xml.encode("utf-8")
+
+                elif item.filename == "[Content_Types].xml":
+                    xml = data.decode("utf-8")
+                    xml = xml.replace(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.template.main+xml",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"
+                    )
+                    data = xml.encode("utf-8")
+
+                elif item.filename == "xl/workbook.xml":
+                    xml = data.decode("utf-8")
+                    xml = xml.replace(' type="template"', ' type="workbook"')
+                    data = xml.encode("utf-8")
+
+                zout.writestr(item, data)
+
+    out_buf.seek(0)
+    return out_buf.read()
 
 
 def create_attachment_subfolder(drive_service, parent_folder_id: str, direction: str) -> str:
@@ -906,10 +966,6 @@ st.set_page_config(
 st.title("📬 QuoteDesk")
 st.caption(f"Mail to Order · {get_app_name()} · Powered by Carob Technologies")
 
-# Template debug — remove after fixing
-import os as _os, glob as _glob
-_xltx = _glob.glob("*.xltx") + _glob.glob("**/*.xltx", recursive=True)
-st.info(f"🔧 Template debug — CWD: {_os.getcwd()} | xltx files: {_xltx} | all files: {_os.listdir('.')}")
 
 # Validate email provider
 _supported_providers = ["gmail"]
