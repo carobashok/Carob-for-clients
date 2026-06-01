@@ -24,6 +24,21 @@ Secrets (.streamlit/secrets.toml):
 import json
 import base64
 import re
+from datetime import timezone, timedelta
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def to_ist(ts_str: str) -> str:
+    if not ts_str:
+        return "—"
+    try:
+        from datetime import datetime
+        ts_clean = str(ts_str)[:19].replace("T", " ")
+        dt = datetime.strptime(ts_clean, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        return dt.astimezone(IST).strftime("%d %b %Y, %I:%M %p IST")
+    except Exception:
+        return str(ts_str)[:16].replace("T", " ")
+
 import os
 from datetime import datetime, timezone
 
@@ -1184,7 +1199,7 @@ with tab_quotes:
         st.caption(f"{len(rows)} record(s)")
 
         for row in rows:
-            created     = row.get("created_at", "")[:16].replace("T", " ")
+            created     = to_ist(row.get("created_at", ""))
             status      = row.get("status", "new")
             urgency     = row.get("urgency_level", "medium")
             review      = row.get("needs_review", False)
