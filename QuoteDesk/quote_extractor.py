@@ -112,9 +112,14 @@ def get_schema() -> str:
 
 
 def get_drive_folder_id() -> str:
-    """Return Google Drive parent folder ID from secrets."""
+    """Return Google Drive folder ID for the selected user."""
     try:
-        return st.secrets["GDRIVE_FOLDER_ID"]
+        users = get_users()
+        selected = st.session_state.get("selected_user", "")
+        if selected and selected in users:
+            return users[selected]
+        # Fallback to GDRIVE_FOLDER_ID if no user selected
+        return st.secrets.get("GDRIVE_FOLDER_ID", "")
     except Exception:
         return ""
 
@@ -125,6 +130,14 @@ def get_app_name() -> str:
         return st.secrets["APP_NAME"]
     except Exception:
         return "Carob Technologies"
+
+
+def get_users() -> dict:
+    """Return dict of {username: folder_id} from secrets [users] section."""
+    try:
+        return dict(st.secrets["users"])
+    except Exception:
+        return {}
 
 
 def get_email_provider() -> str:
@@ -997,6 +1010,30 @@ if _provider not in _supported_providers:
         f"Please update your secrets.toml."
     )
     st.stop()
+
+# User selection
+_users = get_users()
+if not _users:
+    st.error("No users configured. Please add a [users] section to your secrets.toml.")
+    st.stop()
+
+if "selected_user" not in st.session_state:
+    st.session_state.selected_user = list(_users.keys())[0]
+
+col_user, col_info = st.columns([2, 4])
+with col_user:
+    selected_user = st.selectbox(
+        "👤 Who are you?",
+        list(_users.keys()),
+        index=list(_users.keys()).index(st.session_state.selected_user),
+        key="user_selector"
+    )
+    st.session_state.selected_user = selected_user
+
+with col_info:
+    st.info(f"Welcome **{selected_user}** — your quotes and attachments will be saved to your folder.", icon="👤")
+
+st.divider()
 
 
 tab_inbox, tab_quotes, tab_analytics, tab_followup, tab_settings = st.tabs(["📬 Inbox", "📋 Quote Requests", "📊 Analytics", "📊 Track Status", "⚙️ Settings"])
