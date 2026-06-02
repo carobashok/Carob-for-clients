@@ -159,6 +159,20 @@ def get_user_drive_folder(username: str) -> str:
     return get_drive_folder_id()
 
 
+def get_admin_user() -> str:
+    """Return admin username from secrets. Only this user sees the Settings tab."""
+    try:
+        return st.secrets["ADMIN_USER"]
+    except Exception:
+        return ""
+
+
+def is_admin() -> bool:
+    """Return True if the current logged-in user is the admin."""
+    admin = get_admin_user()
+    return bool(admin and st.session_state.get("current_user") == admin)
+
+
 # ── Followup Tracker ──────────────────────────────────────────────────────────
 
 def download_tracker_bytes(drive_service) -> bytes | None:
@@ -1062,7 +1076,16 @@ if st.sidebar.button("🚪 Switch User"):
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
 
-tab_inbox, tab_quotes, tab_analytics, tab_followup, tab_settings = st.tabs(["📬 Inbox", "📋 Quote Requests", "📊 Analytics", "📊 Track Status", "⚙️ Settings"])
+_tab_labels = ["📬 Inbox", "📋 Quote Requests", "📊 Analytics", "📊 Track Status"]
+if is_admin():
+    _tab_labels.append("⚙️ Settings")
+
+_tabs = st.tabs(_tab_labels)
+tab_inbox    = _tabs[0]
+tab_quotes   = _tabs[1]
+tab_analytics = _tabs[2]
+tab_followup = _tabs[3]
+tab_settings = _tabs[4] if is_admin() else None
 
 
 # ── Tab 1: Inbox ───────────────────────────────────────────────────────────────
@@ -1729,113 +1752,114 @@ with tab_followup:
 
 # ── Tab 5: Settings ────────────────────────────────────────────────────────────
 
-with tab_settings:
-    supabase = get_supabase()
+if tab_settings:
+    with tab_settings:
+        supabase = get_supabase()
 
-    st.markdown("### ⚙️ Settings")
+        st.markdown("### ⚙️ Settings")
 
-    # ── Blocked Senders ────────────────────────────────────────────────────────
-    st.markdown("#### 🚫 Blocked Senders")
-    st.caption(
-        "Emails from these addresses or domains will never appear in the Inbox. "
-        "Use @domain.com to block an entire domain (e.g. @linkedin.com)."
-    )
-
-    # Fetch current blocked list
-    try:
-        blocked = supabase.schema(get_schema()).table("blocked_senders").select("*").order("created_at", desc=False).execute().data
-    except Exception as e:
-        st.error(f"Could not load blocked senders: {e}")
-        blocked = []
-
-    # Display existing blocked senders
-    if not blocked:
-        st.info("No blocked senders yet.")
-    else:
-        for b in blocked:
-            col_pattern, col_note, col_del = st.columns([3, 4, 1])
-            with col_pattern:
-                st.code(b.get("pattern", ""), language=None)
-            with col_note:
-                st.caption(b.get("note") or "—")
-            with col_del:
-                if st.button("✕", key=f"del_blocked_{b['id']}", help="Remove this block"):
-                    try:
-                        supabase.schema(get_schema()).table("blocked_senders").delete().eq("id", b["id"]).execute()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Could not remove: {e}")
-
-    st.divider()
-
-    # Add new blocked sender
-    st.markdown("**Add blocked sender or domain:**")
-    col_add1, col_add2, col_add3 = st.columns([3, 4, 1])
-    with col_add1:
-        new_pattern = st.text_input(
-            "Email or domain",
-            placeholder="e.g. noreply@linkedin.com or @newsletter.com",
-            label_visibility="collapsed",
-            key="new_block_pattern"
+        # ── Blocked Senders ────────────────────────────────────────────────────────
+        st.markdown("#### 🚫 Blocked Senders")
+        st.caption(
+            "Emails from these addresses or domains will never appear in the Inbox. "
+            "Use @domain.com to block an entire domain (e.g. @linkedin.com)."
         )
-    with col_add2:
-        new_note = st.text_input(
-            "Note (optional)",
-            placeholder="e.g. LinkedIn notifications",
-            label_visibility="collapsed",
-            key="new_block_note"
-        )
-    with col_add3:
-        if st.button("➕ Add", type="primary", use_container_width=True):
-            if new_pattern.strip():
-                try:
-                    # Support comma-separated multiple entries
-                    patterns = [p.strip().lower() for p in new_pattern.split(",") if p.strip()]
-                    added = []
-                    for p in patterns:
+
+        # Fetch current blocked list
+        try:
+            blocked = supabase.schema(get_schema()).table("blocked_senders").select("*").order("created_at", desc=False).execute().data
+        except Exception as e:
+            st.error(f"Could not load blocked senders: {e}")
+            blocked = []
+
+        # Display existing blocked senders
+        if not blocked:
+            st.info("No blocked senders yet.")
+        else:
+            for b in blocked:
+                col_pattern, col_note, col_del = st.columns([3, 4, 1])
+                with col_pattern:
+                    st.code(b.get("pattern", ""), language=None)
+                with col_note:
+                    st.caption(b.get("note") or "—")
+                with col_del:
+                    if st.button("✕", key=f"del_blocked_{b['id']}", help="Remove this block"):
                         try:
-                            supabase.schema(get_schema()).table("blocked_senders").insert({
-                                "pattern": p,
-                                "note":    new_note.strip() or None,
-                            }).execute()
-                            added.append(p)
-                        except Exception:
-                            pass  # skip duplicates silently
-                    if added:
-                        st.success(f"Blocked {len(added)} sender(s): {', '.join(added)}")
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"Could not add: {e}")
-            else:
-                st.warning("Please enter an email or domain to block.")
+                            supabase.schema(get_schema()).table("blocked_senders").delete().eq("id", b["id"]).execute()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Could not remove: {e}")
 
-    st.divider()
+        st.divider()
 
-    # ── Ignored Emails ─────────────────────────────────────────────────────────
-    st.markdown("#### 🙈 Ignored Emails")
-    st.caption("Individual emails you have ignored. These will never reappear in the Inbox.")
-
-    try:
-        ignored = supabase.schema(get_schema()).table("ignored_emails").select("*").order("ignored_at", desc=True).execute().data
-    except Exception as e:
-        st.error(f"Could not load ignored emails: {e}")
-        ignored = []
-
-    if not ignored:
-        st.info("No ignored emails.")
-    else:
-        st.caption(f"{len(ignored)} ignored email(s)")
-        for ig in ignored:
-            col_i1, col_i2, col_i3 = st.columns([3, 4, 1])
-            with col_i1:
-                st.caption(ig.get("sender", "—"))
-            with col_i2:
-                st.caption(ig.get("subject", "—")[:60])
-            with col_i3:
-                if st.button("↩️", key=f"unignore_{ig['id']}", help="Restore this email"):
+        # Add new blocked sender
+        st.markdown("**Add blocked sender or domain:**")
+        col_add1, col_add2, col_add3 = st.columns([3, 4, 1])
+        with col_add1:
+            new_pattern = st.text_input(
+                "Email or domain",
+                placeholder="e.g. noreply@linkedin.com or @newsletter.com",
+                label_visibility="collapsed",
+                key="new_block_pattern"
+            )
+        with col_add2:
+            new_note = st.text_input(
+                "Note (optional)",
+                placeholder="e.g. LinkedIn notifications",
+                label_visibility="collapsed",
+                key="new_block_note"
+            )
+        with col_add3:
+            if st.button("➕ Add", type="primary", use_container_width=True):
+                if new_pattern.strip():
                     try:
-                        supabase.schema(get_schema()).table("ignored_emails").delete().eq("id", ig["id"]).execute()
-                        st.success("Restored — will appear on next Fetch.")
-                        st.rerun()
+                        # Support comma-separated multiple entries
+                        patterns = [p.strip().lower() for p in new_pattern.split(",") if p.strip()]
+                        added = []
+                        for p in patterns:
+                            try:
+                                supabase.schema(get_schema()).table("blocked_senders").insert({
+                                    "pattern": p,
+                                    "note":    new_note.strip() or None,
+                                }).execute()
+                                added.append(p)
+                            except Exception:
+                                pass  # skip duplicates silently
+                        if added:
+                            st.success(f"Blocked {len(added)} sender(s): {', '.join(added)}")
+                            st.rerun()
                     except Exception as e:
-                        st.error(f"Could not restore: {e}")
+                        st.error(f"Could not add: {e}")
+                else:
+                    st.warning("Please enter an email or domain to block.")
+
+        st.divider()
+
+        # ── Ignored Emails ─────────────────────────────────────────────────────────
+        st.markdown("#### 🙈 Ignored Emails")
+        st.caption("Individual emails you have ignored. These will never reappear in the Inbox.")
+
+        try:
+            ignored = supabase.schema(get_schema()).table("ignored_emails").select("*").order("ignored_at", desc=True).execute().data
+        except Exception as e:
+            st.error(f"Could not load ignored emails: {e}")
+            ignored = []
+
+        if not ignored:
+            st.info("No ignored emails.")
+        else:
+            st.caption(f"{len(ignored)} ignored email(s)")
+            for ig in ignored:
+                col_i1, col_i2, col_i3 = st.columns([3, 4, 1])
+                with col_i1:
+                    st.caption(ig.get("sender", "—"))
+                with col_i2:
+                    st.caption(ig.get("subject", "—")[:60])
+                with col_i3:
+                    if st.button("↩️", key=f"unignore_{ig['id']}", help="Restore this email"):
+                        try:
+                            supabase.schema(get_schema()).table("ignored_emails").delete().eq("id", ig["id"]).execute()
+                            st.success("Restored — will appear on next Fetch.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Could not restore: {e}")
