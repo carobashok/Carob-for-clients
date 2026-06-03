@@ -6,6 +6,8 @@ import streamlit as st
 import pandas as pd
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import portal_db as db
 from proforma import generate_proforma_html
 
