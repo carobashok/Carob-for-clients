@@ -14,7 +14,7 @@ def raise_ticket_page():
     supabase = get_supabase()
 
     # ── Location check (travelling employee) ──────────────────────────────────
-    home_loc    = (profile.get("locations") or {}).get("name", "your home location")
+    home_loc = (profile.get("home") or {}).get("name", "your home location")
     current_loc_id = profile.get("current_location_id")
     home_loc_id    = profile.get("home_location_id")
 
