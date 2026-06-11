@@ -72,24 +72,24 @@ def main():
                 "🔔 Notifications":   "notifications",
             }
         elif role in ("agent", "team_lead"):
-    pages = {
-        "📋 Ticket Queue":    "ticket_queue",
-        "➕ Raise a Ticket":  "raise_ticket",
-        "🔴 SLA Tracker":     "sla_tracker",
-        "📊 Analytics":       "analytics",
-        "💡 AI Insights":     "ai_insights",
-        "🔔 Notifications":   "notifications",
-    }
+            pages = {
+                "📋 Ticket Queue":    "ticket_queue",
+                "➕ Raise a Ticket":  "raise_ticket",
+                "🔴 SLA Tracker":     "sla_tracker",
+                "📊 Analytics":       "analytics",
+                "💡 AI Insights":     "ai_insights",
+                "🔔 Notifications":   "notifications",
+            }
         else:  # admin
-    pages = {
-        "📋 All Tickets":     "ticket_queue",
-        "➕ Raise a Ticket":  "raise_ticket",
-        "🔴 SLA Tracker":     "sla_tracker",
-        "📊 Analytics":       "analytics",
-        "💡 AI Insights":     "ai_insights",
-        "⚙️ Admin Panel":     "admin_panel",
-        "🔔 Notifications":   "notifications",
-    }
+            pages = {
+                "📋 All Tickets":     "ticket_queue",
+                "➕ Raise a Ticket":  "raise_ticket",
+                "🔴 SLA Tracker":     "sla_tracker",
+                "📊 Analytics":       "analytics",
+                "💡 AI Insights":     "ai_insights",
+                "⚙️ Admin Panel":     "admin_panel",
+                "🔔 Notifications":   "notifications",
+            }
 
         selected_label = st.radio("Navigation", list(pages.keys()), label_visibility="collapsed")
         current_page   = pages[selected_label]
