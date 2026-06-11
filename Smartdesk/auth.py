@@ -63,9 +63,9 @@ def _do_login(email: str, password: str):
 
             # Fetch profile
             profile_res = supabase.table("profiles").select(
-                "*, departments(name), locations!profiles_home_location_id_fkey(name), "
+                "*, departments(name), home:locations!profiles_home_location_id_fkey(name), "
                 "agent_teams(name)"
-                ).eq("id", res.user.id).single().execute()id", res.user.id).single().execute()
+            ).eq("id", res.user.id).single().execute()
 
             if profile_res.data:
                 st.session_state["profile"] = profile_res.data
