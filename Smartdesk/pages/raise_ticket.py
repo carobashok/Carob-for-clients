@@ -84,7 +84,7 @@ def _classify_with_ai(description: str, supabase) -> dict:
         sr_types = supabase.table("sr_types").select("name").eq("is_active", True).execute()
         sr_list = "\n".join([f"- {s['name']}" for s in sr_types.data]) if sr_types.data else ""
 
-        client = anthropic.Anthropic(api_key=st.secrets["anthropic"]["api_key"])
+        client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
         prompt = f"""You are an IT Help Desk ticket classification assistant.
 
