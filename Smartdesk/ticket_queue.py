@@ -211,7 +211,7 @@ def _render_ticket_row(ticket, profile, supabase):
                 st.caption(f"⏰ SLA: {sla_deadline}")
 
         # Expand for detail/actions
-        with st.expander(f"View / Act on {ticket_number}"):
+        with st.expander(f"View / Act on {ticket_number}", expanded=False):
             _render_ticket_detail(ticket, profile, supabase)
 
         st.markdown("---")
@@ -226,7 +226,7 @@ def _render_ticket_detail(ticket, profile, supabase):
     ai_conf     = ticket.get("ai_confidence", "")
     ai_suggested = ticket.get("ai_suggested_fields")
 
-    tab1, tab2, tab3 = st.tabs(["📄 Details", "💬 Comments", "⚡ Actions"])
+    tab1, tab2, tab3 = st.tabs([f"📄 Details##{ticket_id}", f"💬 Comments##{ticket_id}", f"⚡ Actions##{ticket_id}"])
 
     # ── Tab 1: Details ─────────────────────────────────────────────────────────
     with tab1:
@@ -239,7 +239,7 @@ def _render_ticket_detail(ticket, profile, supabase):
             if ai_suggested:
                 try:
                     ai_data = json.loads(ai_suggested) if isinstance(ai_suggested, str) else ai_suggested
-                    with st.expander("🤖 AI Suggested Classification"):
+                    with st.expander(f"🤖 AI Suggested Classification##{ticket_id}"):
                         st.json(ai_data)
                 except:
                     pass
