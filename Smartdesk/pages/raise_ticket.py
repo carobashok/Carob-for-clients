@@ -383,7 +383,7 @@ def _submit_ticket(title, description, ticket_type, priority, category_id,
 
 
 # ── Auto-routing Team Lookup ───────────────────────────────────────────────────
-def _get_routing_team(category_id: str, location_id: str, supabase) -> str | None:
+def _get_routing_team(category_id, location_id, supabase):
     """Determine which agent team to route to based on category and location."""
     try:
         if not category_id:
@@ -459,7 +459,7 @@ def _create_approval_records(ticket_id: str, sr_type_id: str, profile: dict, sup
         pass
 
 
-def _find_approver(role: str, profile: dict, supabase) -> str | None:
+def _find_approver(role, profile, supabase):
     """Find the appropriate approver user ID for a given role."""
     try:
         if role == "manager":
