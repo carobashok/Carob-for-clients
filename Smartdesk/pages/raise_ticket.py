@@ -14,7 +14,7 @@ def raise_ticket_page():
     supabase = get_supabase()
 
     # ── Location check (travelling employee) ──────────────────────────────────
-    home_loc = (profile.get("home") or {}).get("name", "your home location")
+    home_loc    = (profile.get("locations") or {}).get("name", "your home location")
     current_loc_id = profile.get("current_location_id")
     home_loc_id    = profile.get("home_location_id")
 
@@ -84,7 +84,7 @@ def _classify_with_ai(description: str, supabase) -> dict:
         sr_types = supabase.table("sr_types").select("name").eq("is_active", True).execute()
         sr_list = "\n".join([f"- {s['name']}" for s in sr_types.data]) if sr_types.data else ""
 
-        client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+        client = anthropic.Anthropic(api_key=st.secrets["anthropic"]["api_key"])
 
         prompt = f"""You are an IT Help Desk ticket classification assistant.
 
