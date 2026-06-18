@@ -157,23 +157,71 @@ if totals_df.empty:
 # ── Summary table: State | RTO | Dimension Value | Category Group | Count ────
 
 st.subheader("Summary Table")
-st.caption(
-    f"Total vehicle counts by State, RTO, {selected_dimension}, and Category Group "
-    "(summed across all years currently in scope for the filters above)."
+
+show_breakdown = st.checkbox(
+    "Show sub-column breakdown (e.g. 4WIC / LMV / MMV / HMV) instead of totals only",
+    value=False,
 )
 
-summary_table = (
-    totals_df.groupby(["state", "rto", "dimension_value", "category_group"], as_index=False)["value"]
-    .sum()
-    .rename(columns={
-        "state": "State",
-        "rto": "RTO",
-        "dimension_value": selected_dimension,
-        "category_group": "Vehicle Group",
-        "value": "Count",
-    })
-    .sort_values(["State", "RTO", "Count"], ascending=[True, True, False])
-)
+if show_breakdown:
+    st.caption(
+        f"Vehicle counts by State, RTO, {selected_dimension}, and Category Group, "
+        "broken down by sub-column (summed across all years currently in scope)."
+    )
+
+    # Pivot the full filtered data (not just TOTAL rows) so each sub_column
+    # becomes its own column — e.g. 4WIC, LMV, MMV, HMV, TOTAL side by side.
+    pivot_source = filtered_df.copy()
+
+    summary_table = (
+        pivot_source
+        .pivot_table(
+            index=["state", "rto", "dimension_value", "category_group"],
+            columns="sub_column",
+            values="value",
+            aggfunc="sum",
+            fill_value=0,
+        )
+        .reset_index()
+        .rename(columns={
+            "state": "State",
+            "rto": "RTO",
+            "dimension_value": selected_dimension,
+            "category_group": "Vehicle Group",
+        })
+    )
+
+    # Put TOTAL as the last column if present, for readability
+    fixed_cols = ["State", "RTO", selected_dimension, "Vehicle Group"]
+    sub_cols = [c for c in summary_table.columns if c not in fixed_cols]
+    if "TOTAL" in sub_cols:
+        sub_cols = [c for c in sub_cols if c != "TOTAL"] + ["TOTAL"]
+    summary_table = summary_table[fixed_cols + sub_cols]
+
+    sort_by_col = "TOTAL" if "TOTAL" in summary_table.columns else (sub_cols[0] if sub_cols else None)
+    if sort_by_col:
+        summary_table = summary_table.sort_values(
+            ["State", "RTO", sort_by_col], ascending=[True, True, False]
+        )
+
+else:
+    st.caption(
+        f"Total vehicle counts by State, RTO, {selected_dimension}, and Category Group "
+        "(summed across all years currently in scope for the filters above)."
+    )
+
+    summary_table = (
+        totals_df.groupby(["state", "rto", "dimension_value", "category_group"], as_index=False)["value"]
+        .sum()
+        .rename(columns={
+            "state": "State",
+            "rto": "RTO",
+            "dimension_value": selected_dimension,
+            "category_group": "Vehicle Group",
+            "value": "Count",
+        })
+        .sort_values(["State", "RTO", "Count"], ascending=[True, True, False])
+    )
 
 if summary_table.empty:
     st.info("No data matches the current filter selection.")
