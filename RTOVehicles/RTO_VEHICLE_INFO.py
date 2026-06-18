@@ -25,6 +25,8 @@ RUN LOCALLY (optional, for testing):
 
 import streamlit as st
 import pandas as pd
+import numpy as np
+import math
 from supabase import create_client
 
 st.set_page_config(page_title="Vahan RTO Data Loader", page_icon="🚗", layout="wide")
@@ -76,20 +78,65 @@ def load_and_clean_csv(uploaded_file) -> pd.DataFrame:
     df["year"] = df["year"].astype(str)
 
     before = len(df)
+
+    # Filter out placeholder/no-data rows that the scraper captured as if
+    # they were real table data. Pattern observed: when a category group
+    # genuinely has no data for an RTO/year, the page shows a "No records
+    # found." message which got scraped into Vehicle_Class, with the
+    # category group's own label ('Vehicle Category Group') leaking into
+    # Sub_Column, and Value left blank/NaN. These are not real vehicle
+    # counts and should not be loaded.
+    no_data_mask = df["vehicle_class"].astype(str).str.contains("no records found", case=False, na=False)
+    no_data_count = no_data_mask.sum()
+    if no_data_count:
+        df = df[~no_data_mask]
+
     df = df.dropna(subset=["state", "rto", "year", "category_group", "vehicle_class", "sub_column"])
     after = len(df)
     dropped = before - after
 
-    # Replace NaN in 'value' with None so it serializes as JSON null,
-    # not NaN (which is invalid JSON and would break the insert).
+    if no_data_count:
+        st.info(f"Filtered out {no_data_count} placeholder 'No records found' rows (genuinely empty category groups, not real data)")
+
+    # Coerce 'value' to numeric explicitly first (catches stray blanks/text
+    # that might have leaked in from placeholder rows), then replace any
+    # resulting NaN with None so it serializes as JSON null, not NaN
+    # (which is invalid JSON and would break the insert).
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
     df["value"] = df["value"].where(pd.notna(df["value"]), None)
 
     return df, dropped
 
 
+def sanitize_records_for_json(records: list[dict]) -> list[dict]:
+    """
+    Replace any NaN/inf float values with None across ALL fields in
+    every record, right before sending to Supabase. This is the final
+    safety net — pandas' df.where(notna(), None) at the column level
+    can still leak NaN through in edge cases (mixed dtypes, numpy
+    float types that aren't caught by pd.notna in to_dict() output),
+    so we sanitize the actual dicts that will be JSON-serialized.
+    """
+    clean_records = []
+    for rec in records:
+        clean_rec = {}
+        for k, v in rec.items():
+            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                clean_rec[k] = None
+            elif isinstance(v, (np.floating,)) and (np.isnan(v) or np.isinf(v)):
+                clean_rec[k] = None
+            elif pd.isna(v) if not isinstance(v, (list, dict)) else False:
+                clean_rec[k] = None
+            else:
+                clean_rec[k] = v
+        clean_records.append(clean_rec)
+    return clean_records
+
+
 def upload_in_batches(client, df: pd.DataFrame, table_name: str, batch_size: int,
                        progress_bar, status_box):
     records = df.to_dict(orient="records")
+    records = sanitize_records_for_json(records)
     total = len(records)
 
     success_count = 0
