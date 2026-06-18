@@ -98,7 +98,13 @@ st.success(f"Loaded {len(df):,} rows covering {df['rto'].nunique()} RTOs, "
 
 st.subheader("Filters")
 
-filter_col1, filter_col2, filter_col3 = st.columns(3)
+filter_col0, filter_col1, filter_col2, filter_col3 = st.columns(4)
+
+with filter_col0:
+    dimension_options = sorted(df["dimension_name"].dropna().unique().tolist())
+    default_idx = dimension_options.index("Vehicle Class") if "Vehicle Class" in dimension_options else 0
+    selected_dimension = st.selectbox("Dimension", options=dimension_options, index=default_idx,
+                                       help="Which Y-Axis dimension to view (Vehicle Class, Maker, etc.)")
 
 with filter_col1:
     rto_options = sorted(df["rto"].dropna().unique().tolist())
@@ -109,17 +115,22 @@ with filter_col2:
     selected_category = st.selectbox("Vehicle Category Group", options=["(All Categories)"] + category_options)
 
 with filter_col3:
-    vehicle_class_options = sorted(df["vehicle_class"].dropna().unique().tolist())
-    selected_vehicle_class = st.selectbox("Vehicle Class", options=["(All Vehicle Classes)"] + vehicle_class_options)
+    dim_value_options = sorted(
+        df[df["dimension_name"] == selected_dimension]["dimension_value"].dropna().unique().tolist()
+    )
+    selected_dim_value = st.selectbox(
+        selected_dimension,
+        options=[f"(All {selected_dimension})"] + dim_value_options
+    )
 
 # Apply filters
-filtered_df = df.copy()
+filtered_df = df[df["dimension_name"] == selected_dimension].copy()
 if selected_rto != "(All RTOs)":
     filtered_df = filtered_df[filtered_df["rto"] == selected_rto]
 if selected_category != "(All Categories)":
     filtered_df = filtered_df[filtered_df["category_group"] == selected_category]
-if selected_vehicle_class != "(All Vehicle Classes)":
-    filtered_df = filtered_df[filtered_df["vehicle_class"] == selected_vehicle_class]
+if selected_dim_value != f"(All {selected_dimension})":
+    filtered_df = filtered_df[filtered_df["dimension_value"] == selected_dim_value]
 
 # Only sum the TOTAL sub-column for headline totals (avoids double-counting
 # sub-type breakdowns like 4WIC/LMV/MMV/HMV alongside their own TOTAL row)
@@ -158,19 +169,20 @@ else:
 
 st.subheader("Detailed Data")
 
-display_cols = ["state", "rto", "year", "category_group", "vehicle_class", "sub_column", "value"]
+display_cols = ["state", "rto", "year", "category_group", "dimension_name", "dimension_value", "sub_column", "value"]
 display_df = filtered_df[display_cols].rename(columns={
     "state": "State",
     "rto": "RTO",
     "year": "Year",
     "category_group": "Category Group",
-    "vehicle_class": "Vehicle Class",
+    "dimension_name": "Dimension",
+    "dimension_value": selected_dimension,
     "sub_column": "Sub Column",
     "value": "Value",
 })
 
 st.dataframe(
-    display_df.sort_values(["Year", "Category Group", "Vehicle Class"]),
+    display_df.sort_values(["Year", "Category Group", selected_dimension]),
     use_container_width=True,
     hide_index=True,
 )
