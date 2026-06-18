@@ -1,0 +1,187 @@
+"""
+pages/RTO_Data_Viewer.py
+==========================
+Viewer page for the uploaded Vahan RTO data: filter by RTO and vehicle
+type, see year-wise bar charts of total registered vehicles.
+
+Place this file inside a 'pages/' folder next to your main app file
+(e.g. 'RTO Vehicles/pages/RTO_Data_Viewer.py' if your main module is
+'RTO Vehicles/RTO_VEHICLE_INFO.py') — Streamlit auto-detects files in
+'pages/' as additional navigable pages.
+"""
+
+import streamlit as st
+import pandas as pd
+from supabase import create_client
+
+st.set_page_config(page_title="RTO Data Viewer", page_icon="📊", layout="wide")
+
+st.title("📊 RTO Vehicle Data Viewer")
+st.caption("Filter by RTO and vehicle type, view year-wise registration totals.")
+
+
+# ── Supabase client ───────────────────────────────────────────────────────────
+
+@st.cache_resource
+def get_supabase_client():
+    try:
+        url = st.secrets["supabase"]["url"]
+        key = st.secrets["supabase"]["key"]
+    except KeyError:
+        st.error(
+            "Supabase credentials not found in Streamlit secrets. "
+            "Add a [supabase] section with 'url' and 'key' under "
+            "Settings → Secrets."
+        )
+        st.stop()
+    return create_client(url, key)
+
+
+TABLE_NAME = "vahan_rto_data"
+
+
+# ── Data loading (cached, with manual refresh) ─────────────────────────────────
+
+@st.cache_data(ttl=600)
+def load_data(table_name: str) -> pd.DataFrame:
+    """
+    Pull all rows from Supabase in pages (PostgREST default caps a
+    single request's row count, so for larger datasets we page through
+    using range headers until no more rows come back.
+    """
+    client = get_supabase_client()
+    page_size = 1000
+    all_rows = []
+    start = 0
+
+    while True:
+        resp = (
+            client.table(table_name)
+            .select("*")
+            .range(start, start + page_size - 1)
+            .execute()
+        )
+        batch = resp.data
+        if not batch:
+            break
+        all_rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        start += page_size
+
+    if not all_rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(all_rows)
+    return df
+
+
+# ── Load data ───────────────────────────────────────────────────────────────
+
+col_refresh, _ = st.columns([1, 5])
+with col_refresh:
+    if st.button("🔄 Refresh data"):
+        st.cache_data.clear()
+
+with st.spinner("Loading data from Supabase…"):
+    df = load_data(TABLE_NAME)
+
+if df.empty:
+    st.warning("No data found in the table yet. Upload data via the loader page first.")
+    st.stop()
+
+st.success(f"Loaded {len(df):,} rows covering {df['rto'].nunique()} RTOs, "
+           f"{df['year'].nunique()} years, {df['category_group'].nunique()} category groups.")
+
+
+# ── Filters ───────────────────────────────────────────────────────────────────
+
+st.subheader("Filters")
+
+filter_col1, filter_col2, filter_col3 = st.columns(3)
+
+with filter_col1:
+    rto_options = sorted(df["rto"].dropna().unique().tolist())
+    selected_rto = st.selectbox("RTO", options=["(All RTOs)"] + rto_options)
+
+with filter_col2:
+    category_options = sorted(df["category_group"].dropna().unique().tolist())
+    selected_category = st.selectbox("Vehicle Category Group", options=["(All Categories)"] + category_options)
+
+with filter_col3:
+    vehicle_class_options = sorted(df["vehicle_class"].dropna().unique().tolist())
+    selected_vehicle_class = st.selectbox("Vehicle Class", options=["(All Vehicle Classes)"] + vehicle_class_options)
+
+# Apply filters
+filtered_df = df.copy()
+if selected_rto != "(All RTOs)":
+    filtered_df = filtered_df[filtered_df["rto"] == selected_rto]
+if selected_category != "(All Categories)":
+    filtered_df = filtered_df[filtered_df["category_group"] == selected_category]
+if selected_vehicle_class != "(All Vehicle Classes)":
+    filtered_df = filtered_df[filtered_df["vehicle_class"] == selected_vehicle_class]
+
+# Only sum the TOTAL sub-column for headline totals (avoids double-counting
+# sub-type breakdowns like 4WIC/LMV/MMV/HMV alongside their own TOTAL row)
+totals_df = filtered_df[filtered_df["sub_column"].str.upper() == "TOTAL"].copy()
+
+if totals_df.empty:
+    st.info(
+        "No 'TOTAL' rows match this filter combination — showing all matching "
+        "sub-columns instead (this can happen if you've filtered down to a "
+        "specific sub-type that has no TOTAL row of its own)."
+    )
+    totals_df = filtered_df.copy()
+
+
+# ── Year-wise bar chart ─────────────────────────────────────────────────────
+
+st.subheader("Year-wise Totals")
+
+yearly_totals = (
+    totals_df.groupby("year", as_index=False)["value"]
+    .sum()
+    .sort_values("year")
+)
+
+if yearly_totals.empty:
+    st.info("No data matches the current filter selection.")
+else:
+    st.bar_chart(yearly_totals.set_index("year")["value"], use_container_width=True)
+
+    with st.expander("View underlying year-wise totals (table)"):
+        st.dataframe(yearly_totals.rename(columns={"year": "Year", "value": "Total Vehicles"}),
+                     use_container_width=True, hide_index=True)
+
+
+# ── Detailed table ───────────────────────────────────────────────────────────
+
+st.subheader("Detailed Data")
+
+display_cols = ["state", "rto", "year", "category_group", "vehicle_class", "sub_column", "value"]
+display_df = filtered_df[display_cols].rename(columns={
+    "state": "State",
+    "rto": "RTO",
+    "year": "Year",
+    "category_group": "Category Group",
+    "vehicle_class": "Vehicle Class",
+    "sub_column": "Sub Column",
+    "value": "Value",
+})
+
+st.dataframe(
+    display_df.sort_values(["Year", "Category Group", "Vehicle Class"]),
+    use_container_width=True,
+    hide_index=True,
+)
+
+st.caption(f"Showing {len(display_df):,} rows for current filter selection.")
+
+# Download filtered data
+csv_bytes = display_df.to_csv(index=False).encode("utf-8")
+st.download_button(
+    "⬇️ Download filtered data as CSV",
+    data=csv_bytes,
+    file_name="rto_data_filtered.csv",
+    mime="text/csv",
+)
