@@ -98,7 +98,11 @@ st.success(f"Loaded {len(df):,} rows covering {df['rto'].nunique()} RTOs, "
 
 st.subheader("Filters")
 
-filter_col0, filter_col1, filter_col2, filter_col3 = st.columns(4)
+filter_col_state, filter_col0, filter_col1, filter_col2, filter_col3 = st.columns(5)
+
+with filter_col_state:
+    state_options = sorted(df["state"].dropna().unique().tolist())
+    selected_state = st.selectbox("State", options=["(All States)"] + state_options)
 
 with filter_col0:
     dimension_options = sorted(df["dimension_name"].dropna().unique().tolist())
@@ -106,8 +110,11 @@ with filter_col0:
     selected_dimension = st.selectbox("Dimension", options=dimension_options, index=default_idx,
                                        help="Which Y-Axis dimension to view (Vehicle Class, Maker, etc.)")
 
+# RTO options narrow down to whichever state is selected
+rto_source_df = df if selected_state == "(All States)" else df[df["state"] == selected_state]
+
 with filter_col1:
-    rto_options = sorted(df["rto"].dropna().unique().tolist())
+    rto_options = sorted(rto_source_df["rto"].dropna().unique().tolist())
     selected_rto = st.selectbox("RTO", options=["(All RTOs)"] + rto_options)
 
 with filter_col2:
@@ -125,6 +132,8 @@ with filter_col3:
 
 # Apply filters
 filtered_df = df[df["dimension_name"] == selected_dimension].copy()
+if selected_state != "(All States)":
+    filtered_df = filtered_df[filtered_df["state"] == selected_state]
 if selected_rto != "(All RTOs)":
     filtered_df = filtered_df[filtered_df["rto"] == selected_rto]
 if selected_category != "(All Categories)":
@@ -143,6 +152,42 @@ if totals_df.empty:
         "specific sub-type that has no TOTAL row of its own)."
     )
     totals_df = filtered_df.copy()
+
+
+# ── Summary table: State | RTO | Dimension Value | Category Group | Count ────
+
+st.subheader("Summary Table")
+st.caption(
+    f"Total vehicle counts by State, RTO, {selected_dimension}, and Category Group "
+    "(summed across all years currently in scope for the filters above)."
+)
+
+summary_table = (
+    totals_df.groupby(["state", "rto", "dimension_value", "category_group"], as_index=False)["value"]
+    .sum()
+    .rename(columns={
+        "state": "State",
+        "rto": "RTO",
+        "dimension_value": selected_dimension,
+        "category_group": "Vehicle Group",
+        "value": "Count",
+    })
+    .sort_values(["State", "RTO", "Count"], ascending=[True, True, False])
+)
+
+if summary_table.empty:
+    st.info("No data matches the current filter selection.")
+else:
+    st.dataframe(summary_table, use_container_width=True, hide_index=True)
+
+    summary_csv = summary_table.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "⬇️ Download summary table as CSV",
+        data=summary_csv,
+        file_name="rto_summary_table.csv",
+        mime="text/csv",
+        key="summary_download",
+    )
 
 
 # ── Year-wise bar chart ─────────────────────────────────────────────────────
