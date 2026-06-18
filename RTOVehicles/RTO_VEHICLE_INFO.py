@@ -53,27 +53,85 @@ def get_supabase_client():
 
 
 TABLE_NAME = "vahan_rto_data"
-EXPECTED_COLUMNS = {"State", "RTO", "Year", "Category_Group", "Vehicle_Class", "Sub_Column", "Value"}
+
+# Core columns every scraped CSV must have, regardless of which Y-Axis
+# dimension was scraped (Vehicle_Class, Maker, Fuel, Norms, etc.)
+CORE_COLUMNS = {"State", "RTO", "Year", "Category_Group", "Sub_Column", "Value"}
+
+# Known dimension column names the scraper can produce (matches the
+# Vahan dashboard's own Y-Axis dropdown labels with spaces replaced by
+# underscores, e.g. --yaxis "Vehicle Class" → CSV column 'Vehicle_Class').
+KNOWN_DIMENSION_COLUMNS = {
+    "Vehicle_Class": "Vehicle Class",
+    "Maker": "Maker",
+    "Fuel": "Fuel",
+    "Norms": "Norms",
+    "Vehicle_Category": "Vehicle Category",
+    # Note: 'State' is a valid Y-Axis choice on the dashboard, but is
+    # deliberately excluded here since it collides with the core 'State'
+    # column (the state being scraped). A --yaxis State scrape isn't
+    # currently distinguishable from the core column and would need the
+    # scraper to emit it under a different column name to support.
+}
 
 
 # ── CSV loading & cleaning ───────────────────────────────────────────────────
 
+def detect_dimension_column(df_columns: set[str]) -> tuple[str, str]:
+    """
+    Figure out which column in the uploaded CSV holds the Y-Axis
+    dimension's row-category values, and what its proper dimension_name
+    label should be. Returns (csv_column_name, dimension_name_label).
+    Raises ValueError if no recognized dimension column is found.
+
+    Note: 'State' appears in KNOWN_DIMENSION_COLUMNS because it's a
+    valid Y-Axis choice on the dashboard, but it's also always present
+    as a CORE_COLUMNS field (the state being scraped). We exclude core
+    columns from dimension candidacy to avoid this collision — a CSV
+    scraped with --yaxis State would need a differently-named column
+    (e.g. the scraper would need to emit it as something other than
+    bare 'State') to be distinguishable, which isn't yet supported.
+    """
+    candidates = [
+        col for col in KNOWN_DIMENSION_COLUMNS
+        if col in df_columns and col not in CORE_COLUMNS
+    ]
+    if not candidates:
+        raise ValueError(
+            f"Could not find a recognized dimension column in the CSV. "
+            f"Expected one of: {list(KNOWN_DIMENSION_COLUMNS.keys())}. "
+            f"Found columns: {sorted(df_columns)}"
+        )
+    if len(candidates) > 1:
+        raise ValueError(
+            f"CSV has multiple possible dimension columns: {candidates}. "
+            f"Expected exactly one Y-Axis dimension column per file."
+        )
+    csv_col = candidates[0]
+    return csv_col, KNOWN_DIMENSION_COLUMNS[csv_col]
+
+
 def load_and_clean_csv(uploaded_file) -> pd.DataFrame:
     df = pd.read_csv(uploaded_file)
 
-    missing = EXPECTED_COLUMNS - set(df.columns)
+    missing = CORE_COLUMNS - set(df.columns)
     if missing:
         raise ValueError(f"CSV is missing expected columns: {missing}")
+
+    dimension_csv_col, dimension_name_label = detect_dimension_column(set(df.columns))
+    st.caption(f"Detected dimension column: **{dimension_csv_col}** → will be stored as "
+               f"dimension_name = '{dimension_name_label}'")
 
     df = df.rename(columns={
         "State": "state",
         "RTO": "rto",
         "Year": "year",
         "Category_Group": "category_group",
-        "Vehicle_Class": "vehicle_class",
         "Sub_Column": "sub_column",
         "Value": "value",
+        dimension_csv_col: "dimension_value",
     })
+    df["dimension_name"] = dimension_name_label
 
     df["year"] = df["year"].astype(str)
 
@@ -82,16 +140,16 @@ def load_and_clean_csv(uploaded_file) -> pd.DataFrame:
     # Filter out placeholder/no-data rows that the scraper captured as if
     # they were real table data. Pattern observed: when a category group
     # genuinely has no data for an RTO/year, the page shows a "No records
-    # found." message which got scraped into Vehicle_Class, with the
-    # category group's own label ('Vehicle Category Group') leaking into
-    # Sub_Column, and Value left blank/NaN. These are not real vehicle
-    # counts and should not be loaded.
-    no_data_mask = df["vehicle_class"].astype(str).str.contains("no records found", case=False, na=False)
+    # found." message which got scraped into the dimension column, with
+    # the category group's own label leaking into Sub_Column, and Value
+    # left blank/NaN. These are not real vehicle counts and should not
+    # be loaded.
+    no_data_mask = df["dimension_value"].astype(str).str.contains("no records found", case=False, na=False)
     no_data_count = no_data_mask.sum()
     if no_data_count:
         df = df[~no_data_mask]
 
-    df = df.dropna(subset=["state", "rto", "year", "category_group", "vehicle_class", "sub_column"])
+    df = df.dropna(subset=["state", "rto", "year", "category_group", "dimension_name", "dimension_value", "sub_column"])
     after = len(df)
     dropped = before - after
 
@@ -153,7 +211,7 @@ def upload_in_batches(client, df: pd.DataFrame, table_name: str, batch_size: int
         try:
             client.table(table_name).upsert(
                 batch,
-                on_conflict="state,rto,year,category_group,vehicle_class,sub_column"
+                on_conflict="state,rto,year,category_group,dimension_name,dimension_value,sub_column"
             ).execute()
             success_count += len(batch)
         except Exception as e:
@@ -195,8 +253,8 @@ if uploaded_file is not None:
     st.warning(
         f"This will upsert {len(df):,} rows into table **{table_name}**. "
         "Existing rows with the same (state, rto, year, category_group, "
-        "vehicle_class, sub_column) combination will be updated; new "
-        "combinations will be inserted."
+        "dimension_name, dimension_value, sub_column) combination will be "
+        "updated; new combinations will be inserted."
     )
 
     if st.button("🚀 Start Upload", type="primary"):
@@ -221,11 +279,19 @@ else:
     st.info("Upload your rto_full_data.csv file above to get started.")
 
     with st.expander("ℹ️ Expected CSV format"):
-        st.write("The CSV should have these columns (long/tidy format):")
-        st.code(", ".join(sorted(EXPECTED_COLUMNS)))
-        st.write("Example row:")
+        st.write("The CSV should have these core columns (long/tidy format):")
+        st.code(", ".join(sorted(CORE_COLUMNS)))
+        st.write("Plus exactly ONE of these dimension columns, depending on which "
+                 "--yaxis was used when scraping:")
+        st.code(", ".join(sorted(KNOWN_DIMENSION_COLUMNS.keys())))
+        st.write("Example rows:")
         st.code(
-            "State: Puducherry(8) | RTO: BAHOUR - PY11( 27-JAN-2017 ) | "
-            "Year: 2026 | Category_Group: FOUR WHEELER | "
-            "Vehicle_Class: ADAPTED VEHICLE | Sub_Column: 4WIC | Value: 1"
+            "Vehicle Class scrape:\n"
+            "  State: Puducherry(8) | RTO: BAHOUR - PY11(...) | Year: 2026 | "
+            "Category_Group: FOUR WHEELER | Vehicle_Class: ADAPTED VEHICLE | "
+            "Sub_Column: 4WIC | Value: 1\n\n"
+            "Maker scrape:\n"
+            "  State: Puducherry(8) | RTO: BAHOUR - PY11(...) | Year: 2024 | "
+            "Category_Group: TWO WHEELER | Maker: BAJAJ AUTO LTD | "
+            "Sub_Column: 2WN | Value: 546"
         )
