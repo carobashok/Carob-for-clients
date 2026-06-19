@@ -93,7 +93,13 @@ with fc4:
     selected_cat = st.selectbox("Category Group", ["(All)"] + list(cat_opts))
 
 with fc5:
-    year_opts = sorted(df["year"].dropna().unique(), reverse=True)
+    # Compute year options based on state + RTO + dimension (but not year itself)
+    year_source = df[df["dimension_name"] == selected_dim].copy()
+    if selected_state != "(All States)":
+        year_source = year_source[year_source["state"] == selected_state]
+    if selected_rto != "(All RTOs — State Summary)":
+        year_source = year_source[year_source["rto"] == selected_rto]
+    year_opts = sorted(year_source["year"].dropna().unique(), reverse=True)
     selected_year = st.selectbox("Year", ["(All Years)"] + list(year_opts))
 
 
