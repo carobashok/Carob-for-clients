@@ -233,26 +233,33 @@ def is_admin() -> bool:
     except KeyError:
         return False
     entered = st.session_state.get("admin_password_input", "")
-    return entered == admin_password
+    if entered == admin_password:
+        st.session_state["admin_authenticated"] = True
+    return st.session_state.get("admin_authenticated", False)
 
 
 with st.sidebar:
     st.markdown("### 🔐 Admin Access")
-    st.text_input(
-        "Admin password",
-        type="password",
-        key="admin_password_input",
-        placeholder="Enter password to unlock upload",
-    )
-    if is_admin():
+    if st.session_state.get("admin_authenticated"):
         st.success("✅ Admin access granted")
+        if st.button("🔓 Logout"):
+            st.session_state["admin_authenticated"] = False
+            st.rerun()
     else:
-        st.caption("Upload functionality is restricted to admins.")
+        st.text_input(
+            "Admin password",
+            type="password",
+            key="admin_password_input",
+            placeholder="Enter password to unlock upload",
+        )
+        is_admin()  # trigger the check so typing immediately authenticates
+        if not st.session_state.get("admin_authenticated"):
+            st.caption("Upload functionality is restricted to admins.")
 
 
 # ── Main UI ───────────────────────────────────────────────────────────────────
 
-if not is_admin():
+if not st.session_state.get("admin_authenticated"):
     st.info("🔒 Data upload is restricted to administrators. "
             "Enter the admin password in the sidebar to unlock.")
     st.stop()
