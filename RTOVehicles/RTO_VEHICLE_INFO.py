@@ -224,7 +224,40 @@ def upload_in_batches(client, df: pd.DataFrame, table_name: str, batch_size: int
     return success_count, error_count, errors
 
 
+# ── Admin authentication via sidebar ─────────────────────────────────────────
+
+def is_admin() -> bool:
+    """Check if the entered sidebar password matches the one in secrets."""
+    try:
+        admin_password = st.secrets["ADMIN_PASSWORD"]
+    except KeyError:
+        return False
+    entered = st.session_state.get("admin_password_input", "")
+    return entered == admin_password
+
+
+with st.sidebar:
+    st.markdown("### 🔐 Admin Access")
+    st.text_input(
+        "Admin password",
+        type="password",
+        key="admin_password_input",
+        placeholder="Enter password to unlock upload",
+    )
+    if is_admin():
+        st.success("✅ Admin access granted")
+    else:
+        st.caption("Upload functionality is restricted to admins.")
+
+
 # ── Main UI ───────────────────────────────────────────────────────────────────
+
+if not is_admin():
+    st.info("🔒 Data upload is restricted to administrators. "
+            "Enter the admin password in the sidebar to unlock.")
+    st.stop()
+
+# ── Admin-only upload UI ──────────────────────────────────────────────────────
 
 uploaded_file = st.file_uploader("Upload rto_full_data.csv", type=["csv"])
 
