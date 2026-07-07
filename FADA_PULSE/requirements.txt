@@ -3,3 +3,4 @@ supabase>=2.4
 anthropic>=0.34
 pdfplumber>=0.11
 pandas>=2.2
+plotly>=5.20
