@@ -67,7 +67,7 @@ def extract_pdf_text(uploaded_file) -> str:
 
 def parse_with_claude(pdf_text: str) -> dict:
     """Send extracted PDF text to Claude and return the parsed {month, rows} dict."""
-    api_key = st.secrets["anthropic"]["api_key"]
+    api_key = st.secrets["ANTHROPIC_API_KEY"]
     client = Anthropic(api_key=api_key)
 
     response = client.messages.create(
