@@ -23,6 +23,35 @@ from anthropic import Anthropic
 
 VALID_CATEGORIES = {"2W", "3W", "PV", "CV", "TRAC", "CE", "Total"}
 
+CATEGORY_ALIASES = {
+    "TRACTOR": "TRAC",
+    "TRACTORS": "TRAC",
+    "CONSTRUCTION EQUIPMENT": "CE",
+    "CE (CONSTRUCTION EQUIPMENT)": "CE",
+    "TWO WHEELER": "2W",
+    "TWO-WHEELER": "2W",
+    "THREE WHEELER": "3W",
+    "THREE-WHEELER": "3W",
+    "PASSENGER VEHICLE": "PV",
+    "PASSENGER VEHICLES": "PV",
+    "COMMERCIAL VEHICLE": "CV",
+    "COMMERCIAL VEHICLES": "CV",
+    "GRAND TOTAL": "Total",
+    "ALL INDIA TOTAL": "Total",
+    "TOTAL": "Total",
+}
+
+
+def normalize_category(raw: str) -> str:
+    cleaned = raw.strip().upper()
+    if cleaned in CATEGORY_ALIASES:
+        return CATEGORY_ALIASES[cleaned]
+    # Already-canonical values (2W, 3W, PV, CV, TRAC, CE) are all uppercase
+    # except "Total" — handle that case-insensitively too.
+    if cleaned == "TOTAL":
+        return "Total"
+    return raw.strip()
+
 EXTRACTION_PROMPT = """You are extracting vehicle registration data from a FADA \
 (Federation of Automobile Dealers Associations) monthly press release.
 
@@ -48,6 +77,10 @@ Return ONLY a JSON object, no other text, no markdown fences, in this exact shap
 Rules:
 - "month" is the month THIS release's data is FOR (not the release/publish date),
   as YYYY-MM.
+- The "category" field must be EXACTLY one of: "2W", "3W", "PV", "CV", "TRAC",
+  "CE", "Total" — even if the source table labels the row differently (e.g. a
+  row titled "TRACTOR" or "TRACTORS" must still be output as "TRAC"; a row
+  titled "GRAND TOTAL" must still be output as "Total").
 - Only include categories that are actually present as their own row in the
   national summary table. Not every release has TRAC or CE — omit categories
   that aren't present rather than guessing or inventing a value.
@@ -89,7 +122,8 @@ def parse_with_claude(pdf_text: str) -> dict:
         raise ValueError(f"Unexpected response shape: {data}")
 
     for row in data["rows"]:
-        if row.get("category") not in VALID_CATEGORIES:
+        row["category"] = normalize_category(row.get("category", ""))
+        if row["category"] not in VALID_CATEGORIES:
             raise ValueError(f"Unrecognized category in response: {row}")
 
     return data
