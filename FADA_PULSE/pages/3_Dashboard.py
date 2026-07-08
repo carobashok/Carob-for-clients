@@ -7,29 +7,16 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-from utils.db import fetch_all_rows, CATEGORY_ORDER
+from utils.db import fetch_all_rows, fetch_all_annual_rows, fetch_all_oem_rows, CATEGORY_ORDER
+from utils.oem_extractor import CATEGORY_LABELS
 
 st.set_page_config(page_title="Dashboard — FADA Pulse", page_icon="📈", layout="wide")
-st.title("📈 Month-wise trends")
+st.title("📈 Trends")
 
-with st.spinner("Loading data..."):
-    rows = fetch_all_rows()
-
-if not rows:
-    st.info("No data yet — upload a PDF on the Upload page to get started.")
-    st.stop()
-
-df = pd.DataFrame(rows)
-df = df[["month", "category", "current_month_units"]].sort_values("month")
-
-months_present = sorted(df["month"].unique())
-st.caption(
-    f"{len(months_present)} months loaded: {months_present[0]} to {months_present[-1]} "
-    f"(not all months in between are necessarily present — see Data Table for the full list)"
-)
+monthly_tab, annual_tab, oem_tab = st.tabs(["Monthly", "Annual (FY)", "OEM"])
 
 
-def trend_chart(data: pd.DataFrame, title: str) -> None:
+def monthly_trend_chart(data: pd.DataFrame, title: str) -> None:
     """Line+marker chart on a categorical month axis, so gaps in coverage
     don't get visually smoothed over as if data were continuous."""
     data = data.copy()
@@ -54,22 +41,140 @@ def trend_chart(data: pd.DataFrame, title: str) -> None:
     st.plotly_chart(fig, use_container_width=True)
 
 
-# --- Total vehicles trend, full width ---
-total_df = df[df["category"] == "Total"]
-if not total_df.empty:
-    trend_chart(total_df, "Total vehicles")
-else:
-    st.warning("No 'Total' category rows found yet.")
+def annual_bar_chart(data: pd.DataFrame, title: str) -> None:
+    fig = px.bar(data, x="fiscal_year", y="current_year_units", title=title)
+    fig.update_xaxes(type="category", title="Fiscal Year")
+    fig.update_yaxes(title="Units", tickformat=",")
+    fig.update_traces(hovertemplate="%{x}<br>%{y:,}<extra></extra>")
+    fig.update_layout(height=350, margin=dict(l=10, r=10, t=40, b=10))
+    st.plotly_chart(fig, use_container_width=True)
 
-# --- Category-wise trends, two per row ---
-st.subheader("Category-wise trends")
 
-other_categories = [c for c in CATEGORY_ORDER if c != "Total" and c in df["category"].unique()]
+def fy_sort_key(fy: str) -> int:
+    """Sort 'FY23', 'FY26' etc. chronologically rather than alphabetically."""
+    digits = "".join(ch for ch in fy if ch.isdigit())
+    return int(digits) if digits else 0
 
-for category in other_categories:
-    cat_df = df[df["category"] == category]
-    trend_chart(cat_df, category)
 
-missing_categories = [c for c in CATEGORY_ORDER if c not in df["category"].unique() and c != "Total"]
-if missing_categories:
-    st.caption(f"No data yet for: {', '.join(missing_categories)}")
+# ============================================================
+# MONTHLY TAB
+# ============================================================
+with monthly_tab:
+    with st.spinner("Loading data..."):
+        rows = fetch_all_rows()
+
+    if not rows:
+        st.info("No data yet — upload a PDF on the Upload page to get started.")
+    else:
+        df = pd.DataFrame(rows)
+        df = df[["month", "category", "current_month_units"]].sort_values("month")
+
+        months_present = sorted(df["month"].unique())
+        st.caption(
+            f"{len(months_present)} months loaded: {months_present[0]} to {months_present[-1]} "
+            f"(not all months in between are necessarily present — see Data Table for the full list)"
+        )
+
+        total_df = df[df["category"] == "Total"]
+        if not total_df.empty:
+            monthly_trend_chart(total_df, "Total vehicles")
+        else:
+            st.warning("No 'Total' category rows found yet.")
+
+        st.subheader("Category-wise trends")
+        other_categories = [c for c in CATEGORY_ORDER if c != "Total" and c in df["category"].unique()]
+        for category in other_categories:
+            cat_df = df[df["category"] == category]
+            monthly_trend_chart(cat_df, category)
+
+        missing_categories = [c for c in CATEGORY_ORDER if c not in df["category"].unique() and c != "Total"]
+        if missing_categories:
+            st.caption(f"No data yet for: {', '.join(missing_categories)}")
+
+# ============================================================
+# ANNUAL TAB
+# ============================================================
+with annual_tab:
+    with st.spinner("Loading data..."):
+        all_annual_rows = fetch_all_annual_rows()
+
+    if not all_annual_rows:
+        st.info("No annual data yet — upload on the Annual & OEM page to get started.")
+    else:
+        all_annual_df = pd.DataFrame(all_annual_rows)
+        all_annual_df["subcategory"] = all_annual_df["subcategory"].fillna("")
+        parent_df = all_annual_df[all_annual_df["subcategory"] == ""].sort_values("fiscal_year")
+
+        total_df = parent_df[parent_df["category"] == "Total"]
+        if not total_df.empty:
+            annual_bar_chart(total_df, "Total vehicles")
+        else:
+            st.warning("No 'Total' category rows found yet.")
+
+        st.subheader("Category-wise trends")
+        other_categories = [c for c in CATEGORY_ORDER if c != "Total" and c in parent_df["category"].unique()]
+        for category in other_categories:
+            cat_df = parent_df[parent_df["category"] == category]
+            annual_bar_chart(cat_df, category)
+
+# ============================================================
+# OEM TAB
+# ============================================================
+with oem_tab:
+    with st.spinner("Loading data..."):
+        all_oem_rows = fetch_all_oem_rows()
+
+    if not all_oem_rows:
+        st.info("No OEM data yet — upload on the Annual & OEM page to get started.")
+    else:
+        all_oem_df = pd.DataFrame(all_oem_rows)
+        all_oem_df["parent_oem"] = all_oem_df["parent_oem"].fillna("")
+
+        category_filter = st.selectbox(
+            "Category",
+            options=["All"] + sorted(all_oem_df["category"].unique()),
+            format_func=lambda c: c if c == "All" else f"{CATEGORY_LABELS.get(c, c)} ({c})",
+            key="dash_oem_category_filter",
+        )
+
+        scope_df = all_oem_df if category_filter == "All" else all_oem_df[all_oem_df["category"] == category_filter]
+        top_level = scope_df[scope_df["parent_oem"] == ""]  # exclude sub-entities to avoid double counting
+
+        fy_order = sorted(top_level["fiscal_year"].unique(), key=fy_sort_key)
+
+        # --- Overall trend ---
+        trend_df = top_level.groupby("fiscal_year", as_index=False)["current_year_units"].sum()
+        trend_df["fiscal_year"] = pd.Categorical(trend_df["fiscal_year"], categories=fy_order, ordered=True)
+        trend_df = trend_df.sort_values("fiscal_year")
+
+        title = (
+            "Total units — all categories"
+            if category_filter == "All"
+            else f"Total units — {CATEGORY_LABELS.get(category_filter, category_filter)}"
+        )
+        fig = px.bar(trend_df, x="fiscal_year", y="current_year_units", title=title)
+        fig.update_xaxes(type="category", title="Fiscal Year", categoryorder="array", categoryarray=fy_order)
+        fig.update_yaxes(title="Units", tickformat=",")
+        fig.update_traces(hovertemplate="%{x}<br>%{y:,}<extra></extra>")
+        fig.update_layout(height=350, margin=dict(l=10, r=10, t=40, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+
+        # --- OEM x fiscal-year table ---
+        st.subheader("OEM breakdown by fiscal year")
+
+        pivot = top_level.pivot_table(
+            index="oem_name", columns="fiscal_year", values="current_year_units", aggfunc="sum", fill_value=0
+        )
+        pivot = pivot[fy_order]  # chronological column order
+        pivot["Total"] = pivot.sum(axis=1)
+        pivot = pivot.sort_values("Total", ascending=False).drop(columns="Total")
+
+        st.dataframe(pivot, use_container_width=True)
+
+        st.download_button(
+            "Download OEM x FY table (CSV)",
+            data=pivot.to_csv(),
+            file_name=f"fada_oem_by_year_{category_filter}.csv",
+            mime="text/csv",
+            key="dash_oem_download",
+        )
