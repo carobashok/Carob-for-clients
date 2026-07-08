@@ -50,7 +50,7 @@ def trend_chart(data: pd.DataFrame, title: str) -> None:
     )
     fig.update_yaxes(title="Units", tickformat=",")
     fig.update_traces(hovertemplate="%{x}<br>%{y:,}<extra></extra>")
-    fig.update_layout(height=350, margin=dict(l=10, r=10, t=40, b=10))
+    fig.update_layout(height=400, margin=dict(l=10, r=10, t=40, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -66,11 +66,9 @@ st.subheader("Category-wise trends")
 
 other_categories = [c for c in CATEGORY_ORDER if c != "Total" and c in df["category"].unique()]
 
-cols = st.columns(2)
-for i, category in enumerate(other_categories):
+for category in other_categories:
     cat_df = df[df["category"] == category]
-    with cols[i % 2]:
-        trend_chart(cat_df, category)
+    trend_chart(cat_df, category)
 
 missing_categories = [c for c in CATEGORY_ORDER if c not in df["category"].unique() and c != "Total"]
 if missing_categories:
