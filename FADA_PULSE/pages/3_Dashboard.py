@@ -32,14 +32,22 @@ st.caption(
 def trend_chart(data: pd.DataFrame, title: str) -> None:
     """Line+marker chart on a categorical month axis, so gaps in coverage
     don't get visually smoothed over as if data were continuous."""
+    data = data.copy()
+    data["month_label"] = pd.to_datetime(data["month"], format="%Y-%m").dt.strftime("%b-%y")
+
     fig = px.line(
         data,
-        x="month",
+        x="month_label",
         y="current_month_units",
         markers=True,
         title=title,
     )
-    fig.update_xaxes(type="category", title="Month")
+    fig.update_xaxes(
+        type="category",
+        title="Month",
+        categoryorder="array",
+        categoryarray=data["month_label"].tolist(),  # data is pre-sorted chronologically
+    )
     fig.update_yaxes(title="Units", tickformat=",")
     fig.update_traces(hovertemplate="%{x}<br>%{y:,}<extra></extra>")
     fig.update_layout(height=350, margin=dict(l=10, r=10, t=40, b=10))
