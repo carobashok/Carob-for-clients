@@ -75,6 +75,12 @@ Return ONLY a JSON object, no other text, no markdown fences, in this exact shap
 }
 
 Rules:
+- Output ONLY the JSON object. Do not show your reasoning, do not narrate steps, do
+  not write any text before or after the JSON. Your entire response must start with
+  "{" and end with "}".
+- Read every number DIRECTLY from the table text provided — never estimate, infer, or
+  back-calculate a value from a percentage figure. If a category's units aren't
+  clearly present in the text, omit that category entirely rather than guessing.
 - "month" is the month THIS release's data is FOR (not the release/publish date),
   as YYYY-MM.
 - The "category" field must be EXACTLY one of: "2W", "3W", "PV", "CV", "TRAC",
@@ -93,9 +99,50 @@ Rules:
 
 
 def extract_pdf_text(uploaded_file) -> str:
+    """Extract both plain text (for narrative context) and any tables with
+    column structure preserved (critical for multi-column releases like
+    FY-vs-FY comparisons, where flat text extraction loses which number
+    belongs to which column)."""
     with pdfplumber.open(uploaded_file) as pdf:
-        text_parts = [page.extract_text() or "" for page in pdf.pages]
-    return "\n\n".join(text_parts)
+        parts = []
+        for page in pdf.pages:
+            text = page.extract_text() or ""
+            if text:
+                parts.append(text)
+
+            tables = page.extract_tables()
+            for table in tables:
+                lines = ["TABLE (columns preserved, left to right):"]
+                for row in table:
+                    cleaned = [(cell or "").strip() for cell in row]
+                    lines.append(" | ".join(cleaned))
+                parts.append("\n".join(lines))
+    return "\n\n".join(parts)
+
+
+def parse_claude_json(raw: str) -> dict:
+    """Parse Claude's response as JSON. If the model added stray prose despite
+    instructions not to, fall back to extracting the {...} block rather than
+    failing outright."""
+    raw = raw.strip()
+    raw = re.sub(r"^```(json)?|```$", "", raw, flags=re.MULTILINE).strip()
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+
+    # Fallback: grab the substring between the first '{' and the last '}'
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidate = raw[start : end + 1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Claude did not return valid JSON:\n{raw}") from e
+
+    raise ValueError(f"Claude did not return valid JSON:\n{raw}")
 
 
 def parse_with_claude(pdf_text: str) -> dict:
@@ -105,18 +152,13 @@ def parse_with_claude(pdf_text: str) -> dict:
 
     response = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1000,
+        max_tokens=1500,
         system=EXTRACTION_PROMPT,
         messages=[{"role": "user", "content": pdf_text[:15000]}],  # cap for very long docs
     )
 
-    raw = response.content[0].text.strip()
-    raw = re.sub(r"^```(json)?|```$", "", raw, flags=re.MULTILINE).strip()
-
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Claude did not return valid JSON:\n{raw}") from e
+    raw = response.content[0].text
+    data = parse_claude_json(raw)
 
     if "month" not in data or "rows" not in data:
         raise ValueError(f"Unexpected response shape: {data}")

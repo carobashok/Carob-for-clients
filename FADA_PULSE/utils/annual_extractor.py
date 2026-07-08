@@ -8,13 +8,10 @@ One upload therefore yields TWO fiscal years' worth of rows — useful for
 backfilling years you don't have a dedicated release for.
 """
 
-import json
-import re
-
 import streamlit as st
 from anthropic import Anthropic
 
-from utils.extractor import extract_pdf_text, normalize_category, VALID_CATEGORIES  # noqa: F401 (re-exported)
+from utils.extractor import extract_pdf_text, normalize_category, parse_claude_json, VALID_CATEGORIES  # noqa: F401 (re-exported)
 
 ANNUAL_EXTRACTION_PROMPT = """You are extracting vehicle registration data from a FADA \
 (Federation of Automobile Dealers Associations) ANNUAL / FISCAL YEAR press release or \
@@ -41,6 +38,14 @@ Return ONLY a JSON object, no other text, no markdown fences, in this exact shap
 }
 
 Rules:
+- Output ONLY the JSON object. Do not show your reasoning, do not narrate steps, do
+  not write any text before or after the JSON. Your entire response must start with
+  "{" and end with "}".
+- Read every number DIRECTLY from the table text provided — never estimate, infer, or
+  back-calculate a value from a YoY% figure. Both FY columns' units should be
+  explicitly present in the source table; if the previous-year column truly isn't
+  present at all, set previous_year_units/previous_fiscal_year to null rather than
+  computing them from a percentage.
 - "current_fiscal_year" / "previous_fiscal_year" must be in "FYxx" format (e.g. "FY23"),
   matching whatever the two data columns in the table represent.
 - The "category" field must be EXACTLY one of: "2W", "3W", "PV", "CV", "TRAC", "CE",
@@ -73,13 +78,8 @@ def parse_annual_with_claude(pdf_text: str) -> dict:
         messages=[{"role": "user", "content": pdf_text[:15000]}],
     )
 
-    raw = response.content[0].text.strip()
-    raw = re.sub(r"^```(json)?|```$", "", raw, flags=re.MULTILINE).strip()
-
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Claude did not return valid JSON:\n{raw}") from e
+    raw = response.content[0].text
+    data = parse_claude_json(raw)
 
     if "current_fiscal_year" not in data or "rows" not in data:
         raise ValueError(f"Unexpected response shape: {data}")
