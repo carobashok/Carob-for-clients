@@ -167,7 +167,7 @@ def parse_with_claude(pdf_text: str) -> dict:
         model="claude-sonnet-4-6",
         max_tokens=1500,
         system=EXTRACTION_PROMPT,
-        messages=[{"role": "user", "content": pdf_text[:15000]}],  # cap for very long docs
+        messages=[{"role": "user", "content": pdf_text[:150000]}],  # generous cap; Sonnet's context window is far larger than any FADA release
     )
 
     raw = response.content[0].text

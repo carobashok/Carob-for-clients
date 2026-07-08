@@ -94,7 +94,7 @@ def parse_oem_with_claude(pdf_text: str, category: str) -> dict:
         model="claude-sonnet-4-6",
         max_tokens=2000,
         system=prompt,
-        messages=[{"role": "user", "content": pdf_text[:40000]}],
+        messages=[{"role": "user", "content": pdf_text[:150000]}],  # generous cap; Sonnet's context window is far larger than any FADA release
     )
 
     raw = response.content[0].text
