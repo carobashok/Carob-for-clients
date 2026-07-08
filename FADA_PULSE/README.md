@@ -27,6 +27,27 @@ CarobInsights app for tracking FADA monthly vehicle retail data over time.
 
 ## Pages
 
+- **Dashboard** — total-vehicles trend at the top, then a category-wise
+  (2W/3W/PV/CV/TRAC/CE) trend grid below. Months are plotted on a categorical
+  axis rather than a continuous time axis, so gaps in coverage show up as
+  gaps rather than getting smoothed over.
+
+- **OEM** — upload a category OEM market-share table (e.g. "Tractor OEM",
+  "Three-Wheeler OEM"). Category is inferred from the table title; current +
+  previous FY captured in one upload like the Annual page. Handles nested
+  sub-entity rows (e.g. a subsidiary listed under its parent OEM). Market
+  share % is calculated on the fly from units, not stored. Separate
+  `fada_oem_summary` table, keyed on (fiscal_year, category, oem_name,
+  parent_oem).
+
+- **Annual** — upload a FADA fiscal-year press release/summary. Since these
+  typically show the current FY and previous FY side by side, one upload
+  captures both years. Sub-category rows (e.g. LCV/MCV/HCV under CV,
+  E-RICKSHAW(P) under 3W) are captured wherever the source table includes
+  them — not every FY or category will have them, and that's fine. Stored in
+  a separate `fada_annual_summary` table (keyed on fiscal_year + category +
+  subcategory) since it's a different granularity from the monthly data.
+
 - **Upload** — drop in a FADA monthly press-release PDF. The app extracts
   text with pdfplumber, sends it to Claude to pull out the national
   category-wise totals (2W/3W/PV/CV/TRAC/CE/Total), and shows a preview.
