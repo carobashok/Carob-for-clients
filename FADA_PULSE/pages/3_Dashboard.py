@@ -13,7 +13,22 @@ from utils.oem_extractor import CATEGORY_LABELS
 st.set_page_config(page_title="Dashboard — FADA Pulse", page_icon="📈", layout="wide")
 st.title("📈 Trends")
 
-monthly_tab, annual_tab, oem_tab = st.tabs(["Monthly", "Annual (FY)", "OEM"])
+# Native st.tabs() loses its selection whenever a widget inside a tab
+# (e.g. the OEM category dropdown below) triggers a rerun — the whole
+# script re-executes and the tab strip snaps back to the first tab. A
+# session_state-backed radio doesn't have that problem, so we use one
+# styled as tabs instead.
+tab_labels = ["Monthly", "Annual (FY)", "OEM"]
+if "dashboard_active_tab" not in st.session_state:
+    st.session_state["dashboard_active_tab"] = tab_labels[0]
+active_tab = st.radio(
+    "Trend view",
+    tab_labels,
+    horizontal=True,
+    key="dashboard_active_tab",
+    label_visibility="collapsed",
+)
+st.divider()
 
 
 def monthly_trend_chart(data: pd.DataFrame, title: str) -> None:
@@ -59,7 +74,7 @@ def fy_sort_key(fy: str) -> int:
 # ============================================================
 # MONTHLY TAB
 # ============================================================
-with monthly_tab:
+if active_tab == "Monthly":
     with st.spinner("Loading data..."):
         rows = fetch_all_rows()
 
@@ -94,7 +109,7 @@ with monthly_tab:
 # ============================================================
 # ANNUAL TAB
 # ============================================================
-with annual_tab:
+elif active_tab == "Annual (FY)":
     with st.spinner("Loading data..."):
         all_annual_rows = fetch_all_annual_rows()
 
@@ -120,7 +135,7 @@ with annual_tab:
 # ============================================================
 # OEM TAB
 # ============================================================
-with oem_tab:
+else:
     with st.spinner("Loading data..."):
         all_oem_rows = fetch_all_oem_rows()
 

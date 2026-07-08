@@ -19,12 +19,26 @@ from utils.db import (
 st.set_page_config(page_title="Upload — FADA Pulse", page_icon="📤", layout="wide")
 st.title("📤 Upload FADA data")
 
-monthly_tab, annual_tab, oem_tab = st.tabs(["Monthly", "Annual (FY)", "OEM (manufacturer)"])
+# Native st.tabs() loses its selection whenever a widget inside a tab
+# (e.g. the OEM category dropdown) triggers a rerun — the whole script
+# re-executes and the tab strip snaps back to the first tab. A session_state
+# -backed radio doesn't have that problem, so we use one styled as tabs.
+tab_labels = ["Monthly", "Annual (FY)", "OEM (manufacturer)"]
+if "upload_active_tab" not in st.session_state:
+    st.session_state["upload_active_tab"] = tab_labels[0]
+active_tab = st.radio(
+    "Data type",
+    tab_labels,
+    horizontal=True,
+    key="upload_active_tab",
+    label_visibility="collapsed",
+)
+st.divider()
 
 # ============================================================
 # MONTHLY TAB
 # ============================================================
-with monthly_tab:
+if active_tab == "Monthly":
     st.subheader("Upload a FADA press release")
 
     uploaded_file = st.file_uploader("Drop a FADA monthly PDF", type=["pdf"], key="monthly_pdf")
@@ -100,7 +114,7 @@ with monthly_tab:
 # ============================================================
 # ANNUAL TAB
 # ============================================================
-with annual_tab:
+elif active_tab == "Annual (FY)":
     st.subheader("Upload a FY press release / summary")
     st.caption(
         "Most FADA annual releases show the current FY and previous FY side by side — "
@@ -230,7 +244,7 @@ with annual_tab:
 # ============================================================
 # OEM TAB
 # ============================================================
-with oem_tab:
+else:
     st.subheader("Upload a category OEM table")
     st.caption(
         "Pick the category first — the document may contain OEM tables for several "
