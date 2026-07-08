@@ -117,9 +117,9 @@ if uploaded_file is not None:
 st.divider()
 
 # ============================================================
-# Browse
+# Browse — trend + OEM x fiscal-year table, same layout regardless of scope
 # ============================================================
-st.subheader("Browse OEM data")
+st.subheader("OEM trends")
 
 with st.spinner("Loading data..."):
     all_rows = fetch_all_oem_rows()
@@ -131,52 +131,54 @@ if not all_rows:
 all_df = pd.DataFrame(all_rows)
 all_df["parent_oem"] = all_df["parent_oem"].fillna("")
 
-col1, col2 = st.columns(2)
-with col1:
-    category_filter = st.selectbox(
-        "Category",
-        options=sorted(all_df["category"].unique()),
-    )
-with col2:
-    fy_options = sorted(all_df["fiscal_year"].unique())
-    fy_filter = st.selectbox("Fiscal year", options=fy_options, index=len(fy_options) - 1)
 
-show_sub_entities = st.checkbox("Show sub-entity rows", value=False)
+def fy_sort_key(fy: str) -> int:
+    """Sort 'FY23', 'FY26' etc. chronologically rather than alphabetically."""
+    digits = "".join(ch for ch in fy if ch.isdigit())
+    return int(digits) if digits else 0
 
-filtered = all_df[(all_df["category"] == category_filter) & (all_df["fiscal_year"] == fy_filter)]
-if not show_sub_entities:
-    filtered = filtered[filtered["parent_oem"] == ""]
 
-filtered = filtered.sort_values("current_year_units", ascending=False)
-category_total = filtered["current_year_units"].sum()
-filtered_display = filtered.copy()
-filtered_display["market_share_%"] = (
-    filtered_display["current_year_units"] / category_total * 100
-).round(2) if category_total else 0
-filtered_display["parent_oem"] = filtered_display["parent_oem"].replace("", "—")
-
-st.dataframe(
-    filtered_display[["oem_name", "parent_oem", "current_year_units", "market_share_%", "source_file"]],
-    use_container_width=True,
-    hide_index=True,
+category_filter = st.selectbox(
+    "Category",
+    options=["All"] + sorted(all_df["category"].unique()),
+    format_func=lambda c: c if c == "All" else f"{CATEGORY_LABELS.get(c, c)} ({c})",
 )
+
+scope_df = all_df if category_filter == "All" else all_df[all_df["category"] == category_filter]
+top_level = scope_df[scope_df["parent_oem"] == ""]  # exclude sub-entities to avoid double counting
+
+fy_order = sorted(top_level["fiscal_year"].unique(), key=fy_sort_key)
+
+# --- Overall trend ---
+trend_df = (
+    top_level.groupby("fiscal_year", as_index=False)["current_year_units"].sum()
+)
+trend_df["fiscal_year"] = pd.Categorical(trend_df["fiscal_year"], categories=fy_order, ordered=True)
+trend_df = trend_df.sort_values("fiscal_year")
+
+title = "Total units — all categories" if category_filter == "All" else f"Total units — {CATEGORY_LABELS.get(category_filter, category_filter)}"
+fig = px.bar(trend_df, x="fiscal_year", y="current_year_units", title=title)
+fig.update_xaxes(type="category", title="Fiscal Year", categoryorder="array", categoryarray=fy_order)
+fig.update_yaxes(title="Units", tickformat=",")
+fig.update_traces(hovertemplate="%{x}<br>%{y:,}<extra></extra>")
+fig.update_layout(height=350, margin=dict(l=10, r=10, t=40, b=10))
+st.plotly_chart(fig, use_container_width=True)
+
+# --- OEM x fiscal-year table ---
+st.subheader("OEM breakdown by fiscal year")
+
+pivot = top_level.pivot_table(
+    index="oem_name", columns="fiscal_year", values="current_year_units", aggfunc="sum", fill_value=0
+)
+pivot = pivot[fy_order]  # chronological column order
+pivot["Total"] = pivot.sum(axis=1)
+pivot = pivot.sort_values("Total", ascending=False).drop(columns="Total")
+
+st.dataframe(pivot, use_container_width=True)
 
 st.download_button(
-    "Download filtered CSV",
-    data=filtered_display.to_csv(index=False),
-    file_name=f"fada_oem_{category_filter}_{fy_filter}.csv",
+    "Download OEM x FY table (CSV)",
+    data=pivot.to_csv(),
+    file_name=f"fada_oem_by_year_{category_filter}.csv",
     mime="text/csv",
 )
-
-# Market share pie for the selected category + FY (top-level OEMs only)
-top_level = filtered[filtered["parent_oem"] == ""].sort_values("current_year_units", ascending=False)
-if not top_level.empty:
-    fig = px.pie(
-        top_level,
-        names="oem_name",
-        values="current_year_units",
-        title=f"{category_filter} market share — {fy_filter}",
-    )
-    fig.update_traces(textposition="inside", textinfo="percent+label")
-    fig.update_layout(height=500)
-    st.plotly_chart(fig, use_container_width=True)
