@@ -72,30 +72,68 @@ sources = sorted(cat_df["source"].dropna().unique())
 st.caption(f"Source: {', '.join(sources) if sources else 'unspecified'}")
 
 # ============================================================
-# Production vs Domestic Sales vs Exports
+# Production vs Domestic Sales vs Exports — FY-wise
 # ============================================================
-plot_df = cat_df.melt(
-    id_vars=["month_display"],
+
+
+def to_fiscal_year(month: pd.Timestamp) -> str:
+    """Indian FY convention: Apr-Mar. Apr'22-Mar'23 -> FY23."""
+    fy_end_year = month.year + 1 if month.month >= 4 else month.year
+    return f"FY{str(fy_end_year)[-2:]}"
+
+
+def fy_sort_key(fy: str) -> int:
+    digits = "".join(ch for ch in fy if ch.isdigit())
+    return int(digits) if digits else 0
+
+
+cat_df = cat_df.copy()
+cat_df["fiscal_year"] = cat_df["month"].apply(to_fiscal_year)
+
+fy_agg = cat_df.groupby("fiscal_year").agg(
+    production=("production", "sum"),
+    domestic_sales=("domestic_sales", "sum"),
+    exports=("exports", "sum"),
+    month_count=("month", "nunique"),
+).reset_index()
+
+# A full FY has 12 months of data; anything less (first year in coverage,
+# or the current year still in progress) gets flagged with an asterisk
+# rather than silently plotted as if it were a complete year.
+fy_agg["is_partial"] = fy_agg["month_count"] < 12
+fy_agg["fy_label"] = fy_agg["fiscal_year"] + fy_agg["is_partial"].map({True: "*", False: ""})
+
+fy_order_keys = sorted(fy_agg["fiscal_year"].unique(), key=fy_sort_key)
+fy_label_order = [
+    fy_agg.loc[fy_agg["fiscal_year"] == fy, "fy_label"].iloc[0] for fy in fy_order_keys
+]
+
+fy_plot_df = fy_agg.melt(
+    id_vars=["fy_label"],
     value_vars=["production", "domestic_sales", "exports"],
     var_name="series",
     value_name="units",
 )
 series_labels = {"production": "Production", "domestic_sales": "Domestic Sales", "exports": "Exports"}
-plot_df["series"] = plot_df["series"].map(series_labels)
+fy_plot_df["series"] = fy_plot_df["series"].map(series_labels)
 
-fig = px.line(
-    plot_df,
-    x="month_display",
+fig = px.bar(
+    fy_plot_df,
+    x="fy_label",
     y="units",
     color="series",
-    markers=True,
-    title=f"{selected_category} — Production, Domestic Sales & Exports",
+    barmode="group",
+    title=f"{selected_category} — Production, Domestic Sales & Exports (FY-wise)",
 )
-fig.update_xaxes(type="category", title="Month", categoryorder="array", categoryarray=month_order)
+fig.update_xaxes(type="category", title="Fiscal Year", categoryorder="array", categoryarray=fy_label_order)
 fig.update_yaxes(title="Units", tickformat=",")
 fig.update_traces(hovertemplate="%{x}<br>%{y:,}<extra></extra>")
 fig.update_layout(height=450, margin=dict(l=10, r=10, t=40, b=10), legend_title="Series")
 st.plotly_chart(fig, use_container_width=True)
+
+if fy_agg["is_partial"].any():
+    partial_years = fy_agg.loc[fy_agg["is_partial"], "fiscal_year"].tolist()
+    st.caption(f"* Partial year — fewer than 12 months of data loaded so far: {', '.join(partial_years)}")
 
 # ============================================================
 # Total Sales (incl. exports), as reported by source
