@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.express as px
 
 from utils.extractor import extract_pdf_text
-from utils.oem_extractor import parse_oem_with_claude, build_oem_rows, OEM_CATEGORIES
+from utils.oem_extractor import parse_oem_with_claude, build_oem_rows, OEM_CATEGORIES, CATEGORY_LABELS
 from utils.db import fetch_existing_oem_keys, upsert_oem_rows, fetch_all_oem_rows
 
 st.set_page_config(page_title="OEM Data — FADA Pulse", page_icon="🏭", layout="wide")
@@ -19,39 +19,44 @@ st.title("🏭 OEM (manufacturer) data")
 # ============================================================
 st.subheader("Upload a category OEM table")
 st.caption(
-    "e.g. \"Tractor OEM\", \"Three-Wheeler OEM\" — the category is inferred from the "
-    "table title. Current + previous FY are both captured in one upload, same as the "
-    "Annual page."
+    "Pick the category first — the document may contain OEM tables for several "
+    "categories, but only the one you select here will be extracted. Current + "
+    "previous FY are both captured in one pass."
+)
+
+category_options = sorted(OEM_CATEGORIES)
+selected_category = st.selectbox(
+    "Category to extract",
+    options=category_options,
+    format_func=lambda c: f"{CATEGORY_LABELS[c]} ({c})",
+    key="oem_category_select",
 )
 
 uploaded_file = st.file_uploader("Drop a FADA OEM table PDF", type=["pdf"], key="oem_pdf")
 
 if uploaded_file is not None:
-    if st.session_state.get("last_oem_upload") != uploaded_file.name:
+    cache_key = (uploaded_file.name, selected_category)
+    if st.session_state.get("last_oem_upload_key") != cache_key:
         st.session_state.pop("extracted_oem_rows", None)
-        st.session_state["last_oem_upload"] = uploaded_file.name
+        st.session_state["last_oem_upload_key"] = cache_key
 
     if "extracted_oem_rows" not in st.session_state:
         with st.spinner("Reading PDF..."):
             pdf_text = extract_pdf_text(uploaded_file)
-        with st.spinner("Extracting OEM data (scanning for all category tables)..."):
+        with st.spinner(f"Extracting {CATEGORY_LABELS[selected_category]} OEM data..."):
             try:
-                parsed = parse_oem_with_claude(pdf_text)
+                parsed = parse_oem_with_claude(pdf_text, selected_category)
                 rows = build_oem_rows(parsed, uploaded_file.name)
                 st.session_state["extracted_oem_rows"] = rows
-                st.session_state["extracted_oem_categories"] = [
-                    t["category"] for t in parsed["tables"]
-                ]
             except ValueError as e:
                 st.error(f"Extraction failed: {e}")
                 st.stop()
 
     rows = st.session_state["extracted_oem_rows"]
-    categories_found = st.session_state["extracted_oem_categories"]
     fiscal_years = sorted({r["fiscal_year"] for r in rows})
     st.success(
-        f"Extracted **{', '.join(categories_found)}** OEM data for: {', '.join(fiscal_years)} "
-        f"({len(rows)} rows total)"
+        f"Extracted **{CATEGORY_LABELS[selected_category]} ({selected_category})** OEM "
+        f"data for: {', '.join(fiscal_years)} ({len(rows)} rows)"
     )
 
     existing = fetch_existing_oem_keys(fiscal_years)
@@ -66,12 +71,7 @@ if uploaded_file is not None:
         else "New",
         axis=1,
     )
-
-    preview_category = st.selectbox(
-        "Preview category", options=["All"] + categories_found, key="oem_preview_category"
-    )
-    display_df = df if preview_category == "All" else df[df["category"] == preview_category]
-    display_df = display_df.copy()
+    display_df = df.copy()
     display_df["parent_oem"] = display_df["parent_oem"].replace("", "—")
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
