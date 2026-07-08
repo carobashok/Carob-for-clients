@@ -52,6 +52,19 @@ def normalize_category(raw: str) -> str:
         return "Total"
     return raw.strip()
 
+
+def normalize_oem_name(name: str) -> str:
+    """Collapse whitespace and standardize casing so the same free-text label
+    (OEM name, sub-category name, etc.) extracted from different releases always
+    maps to the same canonical string. Without this, the same manufacturer or
+    sub-category can silently end up as separate rows if a source PDF has
+    slightly different spacing or casing between releases (e.g. a missing
+    space before a parenthesis)."""
+    cleaned = re.sub(r"\s+", " ", name.strip()).upper()
+    cleaned = re.sub(r"\s*\(", " (", cleaned)  # normalize spacing before "("
+    return cleaned
+
+
 EXTRACTION_PROMPT = """You are extracting vehicle registration data from a FADA \
 (Federation of Automobile Dealers Associations) monthly press release.
 

@@ -13,7 +13,7 @@ under the parent M&M row for three-wheelers).
 import streamlit as st
 from anthropic import Anthropic
 
-from utils.extractor import parse_claude_json, VALID_CATEGORIES
+from utils.extractor import parse_claude_json, normalize_oem_name, VALID_CATEGORIES
 
 OEM_CATEGORIES = VALID_CATEGORIES - {"Total"}  # OEM tables don't have a "Total" category
 
@@ -108,8 +108,8 @@ def parse_oem_with_claude(pdf_text: str, category: str) -> dict:
         )
 
     for row in data["rows"]:
-        row["parent_oem"] = (row.get("parent_oem") or "").strip()
-        row["oem_name"] = (row.get("oem_name") or "").strip()
+        row["parent_oem"] = normalize_oem_name(row.get("parent_oem") or "")
+        row["oem_name"] = normalize_oem_name(row.get("oem_name") or "")
         if not row["oem_name"]:
             raise ValueError(f"Row missing oem_name: {row}")
 

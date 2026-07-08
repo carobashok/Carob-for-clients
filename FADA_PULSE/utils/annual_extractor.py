@@ -11,7 +11,7 @@ backfilling years you don't have a dedicated release for.
 import streamlit as st
 from anthropic import Anthropic
 
-from utils.extractor import extract_pdf_text, normalize_category, parse_claude_json, VALID_CATEGORIES  # noqa: F401 (re-exported)
+from utils.extractor import extract_pdf_text, normalize_category, normalize_oem_name, parse_claude_json, VALID_CATEGORIES  # noqa: F401 (re-exported)
 
 ANNUAL_EXTRACTION_PROMPT = """You are extracting vehicle registration data from a FADA \
 (Federation of Automobile Dealers Associations) ANNUAL / FISCAL YEAR press release or \
@@ -88,7 +88,8 @@ def parse_annual_with_claude(pdf_text: str) -> dict:
         row["category"] = normalize_category(row.get("category", ""))
         if row["category"] not in VALID_CATEGORIES:
             raise ValueError(f"Unrecognized category in response: {row}")
-        row["subcategory"] = (row.get("subcategory") or "").strip()
+        raw_subcategory = (row.get("subcategory") or "").strip()
+        row["subcategory"] = normalize_oem_name(raw_subcategory) if raw_subcategory else ""
 
     return data
 
