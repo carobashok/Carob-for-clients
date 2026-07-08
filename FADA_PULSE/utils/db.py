@@ -116,3 +116,53 @@ def upsert_annual_rows(rows: list[dict]) -> int:
         rows, on_conflict="fiscal_year,category,subcategory"
     ).execute()
     return len(rows)
+
+
+# --- OEM table ---
+
+OEM_TABLE = "fada_oem_summary"
+
+
+def fetch_all_oem_rows() -> list[dict]:
+    client = get_client()
+    all_rows = []
+    page_size = 1000
+    start = 0
+    while True:
+        result = (
+            client.table(OEM_TABLE)
+            .select("*")
+            .order("fiscal_year")
+            .range(start, start + page_size - 1)
+            .execute()
+        )
+        batch = result.data or []
+        all_rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        start += page_size
+    return all_rows
+
+
+def fetch_existing_oem_keys(fiscal_years: list[str]) -> list[dict]:
+    if not fiscal_years:
+        return []
+    client = get_client()
+    result = (
+        client.table(OEM_TABLE)
+        .select("fiscal_year,category,oem_name,parent_oem,current_year_units,source_file")
+        .in_("fiscal_year", fiscal_years)
+        .execute()
+    )
+    return result.data or []
+
+
+def upsert_oem_rows(rows: list[dict]) -> int:
+    """Upsert rows on (fiscal_year, category, oem_name, parent_oem). Returns count sent."""
+    if not rows:
+        return 0
+    client = get_client()
+    client.table(OEM_TABLE).upsert(
+        rows, on_conflict="fiscal_year,category,oem_name,parent_oem"
+    ).execute()
+    return len(rows)
