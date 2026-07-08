@@ -34,20 +34,25 @@ if uploaded_file is not None:
     if "extracted_oem_rows" not in st.session_state:
         with st.spinner("Reading PDF..."):
             pdf_text = extract_pdf_text(uploaded_file)
-        with st.spinner("Extracting OEM data..."):
+        with st.spinner("Extracting OEM data (scanning for all category tables)..."):
             try:
                 parsed = parse_oem_with_claude(pdf_text)
                 rows = build_oem_rows(parsed, uploaded_file.name)
                 st.session_state["extracted_oem_rows"] = rows
-                st.session_state["extracted_oem_category"] = parsed["category"]
+                st.session_state["extracted_oem_categories"] = [
+                    t["category"] for t in parsed["tables"]
+                ]
             except ValueError as e:
                 st.error(f"Extraction failed: {e}")
                 st.stop()
 
     rows = st.session_state["extracted_oem_rows"]
-    category = st.session_state["extracted_oem_category"]
+    categories_found = st.session_state["extracted_oem_categories"]
     fiscal_years = sorted({r["fiscal_year"] for r in rows})
-    st.success(f"Extracted **{category}** OEM data for: {', '.join(fiscal_years)}")
+    st.success(
+        f"Extracted **{', '.join(categories_found)}** OEM data for: {', '.join(fiscal_years)} "
+        f"({len(rows)} rows total)"
+    )
 
     existing = fetch_existing_oem_keys(fiscal_years)
     existing_by_key = {
@@ -61,7 +66,12 @@ if uploaded_file is not None:
         else "New",
         axis=1,
     )
-    display_df = df.copy()
+
+    preview_category = st.selectbox(
+        "Preview category", options=["All"] + categories_found, key="oem_preview_category"
+    )
+    display_df = df if preview_category == "All" else df[df["category"] == preview_category]
+    display_df = display_df.copy()
     display_df["parent_oem"] = display_df["parent_oem"].replace("", "—")
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
