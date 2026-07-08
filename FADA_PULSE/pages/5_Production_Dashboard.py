@@ -136,18 +136,56 @@ if fy_agg["is_partial"].any():
     st.caption(f"* Partial year — fewer than 12 months of data loaded so far: {', '.join(partial_years)}")
 
 # ============================================================
-# Total Sales (incl. exports), as reported by source
+# Total Sales (incl. exports), as reported by source — month-wise,
+# windowed 12 months at a time so the axis stays readable as data grows
 # ============================================================
+st.subheader(f"{selected_category} — Total Sales (incl. Exports)")
+
+window_size = 12
+n_months = len(cat_df)
+max_start = max(n_months - window_size, 0)
+
+window_key = f"prod_window_start_{selected_category}"
+if window_key not in st.session_state:
+    st.session_state[window_key] = max_start  # default: latest 12 months
+
+# Clamp in case the underlying data changed (new upload) since last run
+st.session_state[window_key] = min(max(st.session_state[window_key], 0), max_start)
+
+nav_prev, nav_label, nav_next = st.columns([1, 3, 1])
+with nav_prev:
+    if st.button("⬅ Previous 12", disabled=st.session_state[window_key] <= 0, key=f"prod_prev_{selected_category}"):
+        st.session_state[window_key] = max(st.session_state[window_key] - window_size, 0)
+with nav_next:
+    if st.button(
+        "Next 12 ➡", disabled=st.session_state[window_key] >= max_start, key=f"prod_next_{selected_category}"
+    ):
+        st.session_state[window_key] = min(st.session_state[window_key] + window_size, max_start)
+
+start_idx = st.session_state[window_key]
+window_df = cat_df.iloc[start_idx: start_idx + window_size]
+
+with nav_label:
+    if not window_df.empty:
+        st.markdown(
+            f"<div style='text-align:center; padding-top:0.5rem'>"
+            f"<b>{window_df['month_display'].iloc[0]} to {window_df['month_display'].iloc[-1]}</b>"
+            f" ({n_months} months total)</div>",
+            unsafe_allow_html=True,
+        )
+
 fig2 = px.bar(
-    cat_df,
+    window_df,
     x="month_display",
     y="total_sales",
-    title=f"{selected_category} — Total Sales (incl. Exports)",
+    title=None,
 )
-fig2.update_xaxes(type="category", title="Month", categoryorder="array", categoryarray=month_order)
+fig2.update_xaxes(
+    type="category", title="Month", categoryorder="array", categoryarray=window_df["month_display"].tolist()
+)
 fig2.update_yaxes(title="Units", tickformat=",")
 fig2.update_traces(hovertemplate="%{x}<br>%{y:,}<extra></extra>")
-fig2.update_layout(height=350, margin=dict(l=10, r=10, t=40, b=10))
+fig2.update_layout(height=350, margin=dict(l=10, r=10, t=20, b=10))
 st.plotly_chart(fig2, use_container_width=True)
 
 # ============================================================
