@@ -139,7 +139,7 @@ if fy_agg["is_partial"].any():
 # Total Sales (incl. exports), as reported by source — month-wise,
 # windowed 12 months at a time so the axis stays readable as data grows
 # ============================================================
-st.subheader(f"{selected_category} — Total Sales (incl. Exports)")
+st.subheader(f"{selected_category} — Production, Total Sales & Exports (month-wise)")
 
 window_size = 12
 n_months = len(cat_df)
@@ -174,10 +174,21 @@ with nav_label:
             unsafe_allow_html=True,
         )
 
+window_plot_df = window_df.melt(
+    id_vars=["month_display"],
+    value_vars=["production", "total_sales", "exports"],
+    var_name="series",
+    value_name="units",
+)
+window_series_labels = {"production": "Production", "total_sales": "Total Sales (incl. Exports)", "exports": "Exports"}
+window_plot_df["series"] = window_plot_df["series"].map(window_series_labels)
+
 fig2 = px.bar(
-    window_df,
+    window_plot_df,
     x="month_display",
-    y="total_sales",
+    y="units",
+    color="series",
+    barmode="group",
     title=None,
 )
 fig2.update_xaxes(
@@ -185,7 +196,7 @@ fig2.update_xaxes(
 )
 fig2.update_yaxes(title="Units", tickformat=",")
 fig2.update_traces(hovertemplate="%{x}<br>%{y:,}<extra></extra>")
-fig2.update_layout(height=350, margin=dict(l=10, r=10, t=20, b=10))
+fig2.update_layout(height=400, margin=dict(l=10, r=10, t=20, b=10), legend_title="Series")
 st.plotly_chart(fig2, use_container_width=True)
 
 # ============================================================
