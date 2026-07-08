@@ -7,7 +7,8 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-from utils.db import get_client
+from utils.db import get_client, fetch_all_oem_rows
+from utils.oem_extractor import CATEGORY_LABELS
 
 TABLE = "industry_production_summary"
 
@@ -199,9 +200,104 @@ fig2.update_traces(hovertemplate="%{x}<br>%{y:,}<extra></extra>")
 fig2.update_layout(height=400, margin=dict(l=10, r=10, t=20, b=10), legend_title="Series")
 st.plotly_chart(fig2, use_container_width=True)
 
+st.divider()
+
 # ============================================================
-# Browse
+# OEM-wise retail data (FADA) — same category, for cross-reference
+# alongside the TMA/SIAM production series above. Note this is retail
+# (dealer registrations, FY granularity) vs. production (factory dispatch,
+# monthly) — different measurements, shown side by side, not merged.
 # ============================================================
+st.subheader(f"{selected_category} — OEM-wise retail data (FADA)")
+
+with st.spinner("Loading OEM data..."):
+    all_oem_rows = fetch_all_oem_rows()
+
+if not all_oem_rows:
+    st.info("No FADA OEM data loaded yet — upload it on the Upload page's OEM tab.")
+else:
+    oem_df = pd.DataFrame(all_oem_rows)
+    oem_df["parent_oem"] = oem_df["parent_oem"].fillna("")
+    oem_df = oem_df[oem_df["category"] == selected_category]
+
+    if oem_df.empty:
+        st.info(
+            f"No FADA OEM data loaded yet for category '{selected_category}' "
+            f"— upload it on the Upload page's OEM tab."
+        )
+    else:
+        oem_top_level = oem_df[oem_df["parent_oem"] == ""]  # exclude sub-entities to avoid double counting
+        oem_fy_order = sorted(oem_top_level["fiscal_year"].unique(), key=fy_sort_key)
+
+        oem_totals = (
+            oem_top_level.groupby("oem_name")["current_year_units"].sum().sort_values(ascending=False)
+        )
+        oem_names = list(oem_totals.index)
+
+        col1, col2, col3 = st.columns([1.2, 2, 1.2])
+        with col1:
+            oem_top_n = st.selectbox(
+                "Show top", options=[5, 8, 10, 15, "All"], index=1, key="prod_oem_top_n"
+            )
+        with col2:
+            oem_manual_pick = st.multiselect(
+                "Or pick specific OEMs (overrides Top N)",
+                options=oem_names,
+                default=[],
+                key="prod_oem_manual_pick",
+            )
+        with col3:
+            oem_show_share = st.checkbox("Show as % market share", value=False, key="prod_oem_as_share")
+
+        if oem_manual_pick:
+            oem_selected = oem_manual_pick
+        elif oem_top_n == "All":
+            oem_selected = oem_names
+        else:
+            oem_selected = list(oem_totals.head(oem_top_n).index)
+
+        oem_trend = oem_top_level[oem_top_level["oem_name"].isin(oem_selected)].copy()
+
+        if oem_show_share:
+            oem_fy_totals = oem_top_level.groupby("fiscal_year")["current_year_units"].sum()
+            oem_trend["value"] = oem_trend.apply(
+                lambda r: (r["current_year_units"] / oem_fy_totals[r["fiscal_year"]] * 100)
+                if oem_fy_totals[r["fiscal_year"]] else 0,
+                axis=1,
+            )
+            oem_y_col, oem_y_title, oem_hover = "value", "Market share (%)", "%{x}<br>%{y:.2f}%<extra></extra>"
+        else:
+            oem_trend["value"] = oem_trend["current_year_units"]
+            oem_y_col, oem_y_title, oem_hover = "value", "Units", "%{x}<br>%{y:,}<extra></extra>"
+
+        oem_trend["fiscal_year"] = pd.Categorical(oem_trend["fiscal_year"], categories=oem_fy_order, ordered=True)
+        oem_trend = oem_trend.sort_values("fiscal_year")
+
+        oem_fig = px.line(
+            oem_trend, x="fiscal_year", y=oem_y_col, color="oem_name", markers=True,
+        )
+        oem_fig.update_xaxes(
+            type="category", title="Fiscal Year", categoryorder="array", categoryarray=oem_fy_order
+        )
+        oem_fig.update_yaxes(title=oem_y_title, tickformat="," if not oem_show_share else None)
+        oem_fig.update_traces(hovertemplate=oem_hover)
+        oem_fig.update_layout(height=450, margin=dict(l=10, r=10, t=20, b=10), legend_title="OEM")
+        st.plotly_chart(oem_fig, use_container_width=True)
+
+        if not oem_manual_pick and oem_top_n != "All" and len(oem_names) > oem_top_n:
+            st.caption(f"Showing top {oem_top_n} of {len(oem_names)} OEMs by total volume.")
+
+        oem_pivot = oem_top_level.pivot_table(
+            index="oem_name", columns="fiscal_year", values="current_year_units", aggfunc="sum", fill_value=0
+        )
+        oem_pivot = oem_pivot[oem_fy_order]
+        oem_pivot["Total"] = oem_pivot.sum(axis=1)
+        oem_pivot = oem_pivot.sort_values("Total", ascending=False).drop(columns="Total")
+        st.dataframe(oem_pivot, use_container_width=True)
+
+st.divider()
+
+
 st.subheader("Browse production data")
 
 display_df = cat_df[
