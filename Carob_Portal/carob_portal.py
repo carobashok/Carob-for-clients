@@ -35,7 +35,7 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
     font-size: 2rem !important; font-weight: 700 !important; color: #0A0A0F !important;
 }
 
-.portal-title { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: #0A0A0F; margin-bottom: 4px; }
+.portal-title { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: #C9A84C; margin-bottom: 4px; }
 .portal-sub { font-size: 0.85rem; color: #8A8A9A; margin-bottom: 24px; }
 
 .product-card {
@@ -46,11 +46,6 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
 .product-cat { font-size: 0.78rem; color: #8A8A9A; margin-bottom: 8px; }
 .product-price { font-size: 1.1rem; font-weight: 700; color: #C9A84C; }
 .product-moq { font-size: 0.78rem; color: #8A8A9A; }
-
-.status-pending { background: #FEF9C3; color: #854D0E; padding: 3px 10px; border-radius: 99px; font-size: 0.75rem; font-weight: 600; }
-.status-approved { background: #DCFCE7; color: #166534; padding: 3px 10px; border-radius: 99px; font-size: 0.75rem; font-weight: 600; }
-.status-rejected { background: #FEE2E2; color: #991B1B; padding: 3px 10px; border-radius: 99px; font-size: 0.75rem; font-weight: 600; }
-.status-change { background: #DBEAFE; color: #1E40AF; padding: 3px 10px; border-radius: 99px; font-size: 0.75rem; font-weight: 600; }
 
 .stButton > button { background: #0A0A0F; color: #C9A84C; border: none; border-radius: 6px; font-weight: 600; }
 .stButton > button:hover { background: #C9A84C; color: #0A0A0F; }
@@ -65,6 +60,8 @@ if "portal_user" not in st.session_state:
     st.session_state.portal_user = None
 if "cart" not in st.session_state:
     st.session_state.cart = []
+if "resubmit_order_id" not in st.session_state:
+    st.session_state.resubmit_order_id = None
 
 
 # ── LOGIN ─────────────────────────────────────────────────────────────────────
@@ -84,7 +81,7 @@ def show_login():
 
         with st.form("login_form"):
             username = st.text_input("Username", placeholder="e.g. rajan_ent")
-            password = st.text_input("Password", type="password", placeholder="Enter your password")
+            password = st.text_input("Password", type="password")
             submitted = st.form_submit_button("Sign In →", use_container_width=True)
 
         if submitted:
@@ -94,16 +91,16 @@ def show_login():
                 st.session_state.cart = []
                 st.rerun()
             else:
-                st.error("Invalid username or password. Please try again.")
+                st.error("Invalid username or password.")
 
         st.markdown("""
         <div style='text-align:center;margin-top:16px;font-size:0.78rem;color:#8A8A9A;'>
-            Demo credentials: rajan_ent / demo123
+            Demo: rajan_ent / demo123
         </div>
         """, unsafe_allow_html=True)
 
 
-# ── SIDEBAR (logged in) ───────────────────────────────────────────────────────
+# ── SIDEBAR ───────────────────────────────────────────────────────────────────
 def show_sidebar():
     user = st.session_state.portal_user
     with st.sidebar:
@@ -137,6 +134,7 @@ def show_sidebar():
         if st.button("Sign Out", use_container_width=True):
             st.session_state.portal_user = None
             st.session_state.cart = []
+            st.session_state.resubmit_order_id = None
             st.rerun()
 
         st.markdown("""
@@ -157,6 +155,7 @@ def show_dashboard():
     orders_df = db.get_my_orders(user["id"])
     pending = len(orders_df[orders_df["status"] == "Pending"]) if not orders_df.empty else 0
     approved = len(orders_df[orders_df["status"] == "Approved"]) if not orders_df.empty else 0
+    change_req = len(orders_df[orders_df["status"] == "Change Requested"]) if not orders_df.empty else 0
     total_val = orders_df["total_value"].sum() if not orders_df.empty else 0
 
     k1, k2, k3, k4 = st.columns(4)
@@ -164,6 +163,9 @@ def show_dashboard():
     k2.metric("Pending Approval", pending)
     k3.metric("Approved", approved)
     k4.metric("Total Order Value (₹)", f"{total_val:,.0f}")
+
+    if change_req > 0:
+        st.warning(f"⚠️ You have **{change_req}** order(s) with change requests from admin. Go to **My Orders** to review and resubmit.")
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
@@ -184,7 +186,6 @@ def show_dashboard():
                 </div>
                 """, unsafe_allow_html=True)
 
-    # Recent orders
     if not orders_df.empty:
         st.markdown("<hr>", unsafe_allow_html=True)
         st.subheader("Recent Orders")
@@ -202,7 +203,7 @@ def show_catalogue():
 
     products = db.get_active_products()
     if products.empty:
-        st.info("No products available at this time.")
+        st.info("No products available.")
         return
 
     categories = ["All"] + sorted(products["category"].dropna().unique().tolist())
@@ -219,7 +220,7 @@ def show_catalogue():
         filtered = filtered[filtered["category"] == cat_filter]
 
     for _, prod in filtered.iterrows():
-        with st.expander(f"**{prod['name']}** — ₹{prod['base_price']:,.0f}/{prod['unit']} · {prod['category']}", expanded=False):
+        with st.expander(f"**{prod['name']}** — ₹{prod['base_price']:,.0f}/{prod['unit']} · {prod['category']}"):
             col_info, col_order = st.columns([2, 1])
             with col_info:
                 st.markdown(f"**Description:** {prod.get('description','—')}")
@@ -302,11 +303,7 @@ def show_cart():
             "unit": "Unit", "qty": "Qty", "discount_pct": "Disc %",
             "unit_price": "Unit Price (₹)", "line_total": "Total (₹)"
         }),
-        use_container_width=True, hide_index=True,
-        column_config={
-            "Unit Price (₹)": st.column_config.NumberColumn(format="₹%.2f"),
-            "Total (₹)": st.column_config.NumberColumn(format="₹%.2f"),
-        }
+        use_container_width=True, hide_index=True
     )
 
     total = cart_df["line_total"].sum()
@@ -315,11 +312,7 @@ def show_cart():
 
     col_addr, col_act = st.columns([2, 1])
     with col_addr:
-        delivery_address = st.text_area(
-            "Delivery Address *",
-            value=user.get("address", ""),
-            height=100
-        )
+        delivery_address = st.text_area("Delivery Address *", value=user.get("address", ""), height=100)
         notes = st.text_input("Order Notes / Special Instructions", "")
 
     with col_act:
@@ -332,12 +325,8 @@ def show_cart():
             if not delivery_address:
                 st.error("Please enter a delivery address.")
             else:
-                order_num = db.place_order(
-                    user["id"], delivery_address, notes,
-                    st.session_state.cart
-                )
-                st.success(f"✅ Order **{order_num}** placed successfully! "
-                           f"You will be notified once it is approved.")
+                order_num = db.place_order(user["id"], delivery_address, notes, st.session_state.cart)
+                st.success(f"✅ Order **{order_num}** placed! You will be notified once approved.")
                 st.session_state.cart = []
                 st.rerun()
 
@@ -345,7 +334,8 @@ def show_cart():
 # ── MY ORDERS ─────────────────────────────────────────────────────────────────
 def show_my_orders():
     st.markdown('<div class="portal-title">My Orders</div>', unsafe_allow_html=True)
-    st.markdown('<div class="portal-sub">Track your order status and download proformas</div>', unsafe_allow_html=True)
+    st.markdown('<div class="portal-sub">Track status · Download proforma · Modify and resubmit</div>',
+                unsafe_allow_html=True)
 
     user = st.session_state.portal_user
     orders_df = db.get_my_orders(user["id"])
@@ -362,52 +352,115 @@ def show_my_orders():
 
     for _, order in df.iterrows():
         status = order["status"]
-        status_class = {
-            "Pending": "status-pending",
-            "Approved": "status-approved",
-            "Rejected": "status-rejected",
-            "Change Requested": "status-change"
-        }.get(status, "")
 
         with st.expander(
-            f"**{order['order_number']}** · {order['order_date']} · ₹{order['total_value']:,.0f} · {status}",
+            f"**{order['order_number']}** · {order['order_date']} · "
+            f"₹{order['total_value']:,.0f} · {status}",
             expanded=(status == "Change Requested")
         ):
-            col_o1, col_o2 = st.columns([2, 1])
-            with col_o1:
-                lines = db.get_order_lines(order["id"])
-                if not lines.empty:
-                    dcols = ["product_code", "product_name", "unit", "qty",
-                             "discount_pct", "unit_price", "line_total"]
-                    available = [c for c in dcols if c in lines.columns]
-                    st.dataframe(lines[available].rename(columns={
-                        "product_code": "Code", "product_name": "Product",
-                        "unit": "Unit", "qty": "Qty", "discount_pct": "Disc %",
-                        "unit_price": "Unit Price (₹)", "line_total": "Total (₹)"
-                    }), use_container_width=True, hide_index=True)
+            # ── Change Requested — show editable resubmit form ────────────
+            if status == "Change Requested":
+                st.error(f"📝 Admin note: **{order.get('admin_remarks', '')}**")
+                st.markdown("**Modify your order below and resubmit:**")
 
-                if order.get("admin_remarks"):
-                    if status == "Change Requested":
-                        st.warning(f"📝 Admin note: {order['admin_remarks']}")
-                    elif status == "Rejected":
+                lines = db.get_order_lines(order["id"])
+                products = db.get_active_products()
+                prod_map = {row["id"]: row.to_dict() for _, row in products.iterrows()}
+
+                updated_lines = []
+                remove_flags = []
+
+                for _, line in lines.iterrows():
+                    lc1, lc2, lc3, lc4 = st.columns([3, 1.5, 1.5, 1])
+                    with lc1:
+                        st.text(f"{line.get('product_code','')} — {line.get('product_name','')}")
+                    with lc2:
+                        prod_data = prod_map.get(line.get("portal_product_id") or line.get("product_id"))
+                        moq = prod_data["moq"] if prod_data else 1
+                        new_qty = st.number_input(
+                            f"Qty ({line.get('unit','')}) *",
+                            min_value=float(moq),
+                            value=float(line["qty"]),
+                            step=float(moq),
+                            key=f"resubmit_qty_{order['id']}_{line['id']}"
+                        )
+                    with lc3:
+                        if prod_data:
+                            new_price, new_disc = db.calculate_price(prod_data, new_qty)
+                            st.markdown(f"₹{new_price:,.2f}/{line.get('unit','')}")
+                            if new_disc > 0:
+                                st.caption(f"{new_disc:.0f}% discount applied")
+                        else:
+                            new_price = line["unit_price"]
+                            new_disc = line["discount_pct"]
+                            st.markdown(f"₹{new_price:,.2f}")
+                    with lc4:
+                        remove = st.checkbox("Remove", key=f"remove_{order['id']}_{line['id']}")
+                        remove_flags.append(remove)
+
+                    if not remove:
+                        updated_lines.append({
+                            "product_id": line.get("portal_product_id") or line.get("product_id"),
+                            "qty": new_qty,
+                            "unit_price": new_price,
+                            "discount_pct": new_disc
+                        })
+
+                new_notes = st.text_input("Updated notes (optional)", value=order.get("notes", ""),
+                                           key=f"resubmit_notes_{order['id']}")
+
+                if updated_lines:
+                    new_total = sum(l["qty"] * l["unit_price"] for l in updated_lines)
+                    st.markdown(f"**Updated Order Total: ₹{new_total:,.2f}**")
+
+                col_r1, col_r2 = st.columns([1, 3])
+                with col_r1:
+                    if st.button("🔄 Resubmit Order", key=f"resubmit_{order['id']}",
+                                 use_container_width=True):
+                        if not updated_lines:
+                            st.error("Cannot resubmit with all lines removed.")
+                        else:
+                            db.resubmit_order(order["id"], updated_lines, new_notes)
+                            st.success(f"✅ Order **{order['order_number']}** resubmitted for approval!")
+                            st.rerun()
+
+            else:
+                # ── Normal view for other statuses ────────────────────────
+                col_o1, col_o2 = st.columns([2, 1])
+                with col_o1:
+                    lines = db.get_order_lines(order["id"])
+                    if not lines.empty:
+                        dcols = ["product_code", "product_name", "unit", "qty",
+                                 "discount_pct", "unit_price", "line_total"]
+                        available = [c for c in dcols if c in lines.columns]
+                        st.dataframe(lines[available].rename(columns={
+                            "product_code": "Code", "product_name": "Product",
+                            "unit": "Unit", "qty": "Qty", "discount_pct": "Disc %",
+                            "unit_price": "Unit Price (₹)", "line_total": "Total (₹)"
+                        }), use_container_width=True, hide_index=True)
+
+                    if status == "Rejected" and order.get("admin_remarks"):
                         st.error(f"❌ Rejection reason: {order['admin_remarks']}")
 
-            with col_o2:
-                st.markdown(f"**Status:** {status}")
-                st.markdown(f"**Delivery to:** {order.get('delivery_address','—')}")
-                if order.get("so_number"):
-                    st.markdown(f"**SO Number:** {order['so_number']}")
+                with col_o2:
+                    st.markdown(f"**Status:** {status}")
+                    st.markdown(f"**Delivery to:** {order.get('delivery_address','—')}")
 
-                if status == "Approved":
-                    lines = db.get_order_lines(order["id"])
-                    proforma_html = generate_proforma_html(order.to_dict(), lines)
-                    st.download_button(
-                        "⬇️ Download Proforma Invoice",
-                        data=proforma_html,
-                        file_name=f"Proforma_{order['order_number']}.html",
-                        mime="text/html",
-                        key=f"dl_{order['id']}"
-                    )
+                    # Fix SO Number display — show — instead of nan
+                    so_num = order.get("so_number")
+                    so_display = so_num if so_num and str(so_num) != "nan" else "—"
+                    st.markdown(f"**SO Number:** {so_display}")
+
+                    if status == "Approved":
+                        lines = db.get_order_lines(order["id"])
+                        proforma_html = generate_proforma_html(order.to_dict(), lines)
+                        st.download_button(
+                            "⬇️ Download Proforma Invoice",
+                            data=proforma_html,
+                            file_name=f"Proforma_{order['order_number']}.html",
+                            mime="text/html",
+                            key=f"dl_{order['id']}"
+                        )
 
 
 # ── MAIN ─────────────────────────────────────────────────────────────────────

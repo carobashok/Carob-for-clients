@@ -69,7 +69,7 @@ def get_all_tiers() -> pd.DataFrame:
                         "portal_products.product_code": "product_code"}, inplace=True)
     return df
 
-def calculate_price(product: dict, qty: float) -> tuple[float, float]:
+def calculate_price(product: dict, qty: float) -> tuple:
     """Returns (unit_price, discount_pct) based on qty and tiers"""
     tiers = get_pricing_tiers(product["id"])
     base = product["base_price"]
@@ -104,7 +104,7 @@ def save_pricing_tiers(product_id: int, tiers: list):
 def get_my_orders(portal_user_id: int) -> pd.DataFrame:
     sb = get_supabase()
     res = (sb.table("portal_orders")
-             .select("*, portal_order_lines(id)")
+             .select("*")
              .eq("portal_user_id", portal_user_id)
              .order("created_at", desc=True)
              .execute())
@@ -113,15 +113,19 @@ def get_my_orders(portal_user_id: int) -> pd.DataFrame:
 def get_order_lines(portal_order_id: int) -> pd.DataFrame:
     sb = get_supabase()
     res = (sb.table("portal_order_lines")
-             .select("*, portal_products(name, product_code, unit)")
+             .select("*, portal_products(name, product_code, unit, base_price, id)")
              .eq("portal_order_id", portal_order_id)
              .execute())
     if not res.data:
         return pd.DataFrame()
     df = pd.json_normalize(res.data)
-    df.rename(columns={"portal_products.name": "product_name",
-                        "portal_products.product_code": "product_code",
-                        "portal_products.unit": "unit"}, inplace=True)
+    df.rename(columns={
+        "portal_products.name": "product_name",
+        "portal_products.product_code": "product_code",
+        "portal_products.unit": "unit",
+        "portal_products.base_price": "base_price",
+        "portal_products.id": "portal_product_id"
+    }, inplace=True)
     return df
 
 def place_order(portal_user_id: int, delivery_address: str,
@@ -150,6 +154,31 @@ def place_order(portal_user_id: int, delivery_address: str,
         }).execute()
     return order_num
 
+def resubmit_order(portal_order_id: int, updated_lines: list, notes: str = ""):
+    """Distributor modifies and resubmits a Change Requested order"""
+    sb = get_supabase()
+    # Delete existing lines
+    sb.table("portal_order_lines").delete().eq("portal_order_id", portal_order_id).execute()
+    # Insert updated lines
+    total = 0
+    for line in updated_lines:
+        sb.table("portal_order_lines").insert({
+            "portal_order_id": portal_order_id,
+            "product_id": line["product_id"],
+            "qty": line["qty"],
+            "unit_price": line["unit_price"],
+            "discount_pct": line["discount_pct"]
+        }).execute()
+        total += line["qty"] * line["unit_price"]
+    # Reset order status to Pending, clear admin remarks
+    sb.table("portal_orders").update({
+        "status": "Pending",
+        "admin_remarks": None,
+        "total_value": total,
+        "notes": notes,
+        "order_date": str(date.today())
+    }).eq("id", portal_order_id).execute()
+
 
 # ── Admin — Portal Order Management ──────────────────────────────────────────
 
@@ -163,15 +192,12 @@ def get_portal_orders_summary(status: str = None) -> pd.DataFrame:
 
 def approve_order(portal_order_id: int, order_number: str,
                   portal_user_id: int, cart_lines: pd.DataFrame) -> str:
-    """Approve portal order and create SO in sales_orders"""
     sb = get_supabase()
     from datetime import datetime, timedelta
 
-    # Get user details
     user_res = sb.table("portal_users").select("*").eq("id", portal_user_id).execute()
     user = user_res.data[0]
 
-    # Find or create customer in customers table
     cust_res = sb.table("customers").select("customer_id").eq("customer_name", user["company_name"]).execute()
     if cust_res.data:
         customer_id = cust_res.data[0]["customer_id"]
@@ -187,7 +213,6 @@ def approve_order(portal_order_id: int, order_number: str,
         }).execute()
         customer_id = new_cust.data[0]["customer_id"]
 
-    # Create SO
     so_count = sb.table("sales_orders").select("id", count="exact").execute()
     so_num = f"SO-{(so_count.count or 0) + 1:04d}"
     total = cart_lines["line_total"].sum() if not cart_lines.empty else 0
@@ -205,7 +230,6 @@ def approve_order(portal_order_id: int, order_number: str,
     }).execute()
     so_id = so_res.data[0]["id"]
 
-    # Create SO lines — match portal products to inventory items by product_code
     for _, line in cart_lines.iterrows():
         item_res = sb.table("items").select("id").eq("item_code", line.get("product_code", "")).execute()
         if item_res.data:
@@ -218,8 +242,6 @@ def approve_order(portal_order_id: int, order_number: str,
                 "unit_price": float(line["unit_price"])
             }).execute()
 
-    # Update portal order status
-    from datetime import datetime
     sb.table("portal_orders").update({
         "status": "Approved",
         "so_number": so_num,
