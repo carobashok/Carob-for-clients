@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+order_tracker.db
+.DS_Store
+.streamlit/secrets.toml
