@@ -261,7 +261,7 @@ def generate_order_pdf(order, items_df) -> bytes:
     pdf.cell(0, 10, pdf_safe(f"Order #{order.get('order_id')}"), ln=1)
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 6, "Carob Technologies - BTP Order Sheet", ln=1)
+    pdf.cell(0, 6, "Carob Technologies - Order Sheet", ln=1)
     pdf.set_text_color(0, 0, 0)
     pdf.ln(4)
     pdf.set_draw_color(180, 180, 180)
@@ -512,7 +512,7 @@ st.markdown(f"""
         <div class="brand-sub">Customer to Factory order visibility</div>
     </div>
     <div style="text-align:center;">
-        <div style="font-size:15px;font-weight:700;color:white;">BTP Order Tracking Portal</div>
+        <div style="font-size:15px;font-weight:700;color:white;">Order Tracking Portal</div>
         <div style="font-size:11px;color:rgba(255,255,255,0.5);">Powered by Carob Technologies</div>
     </div>
     <div class="org">Carob Technologies</div>
@@ -526,7 +526,7 @@ with st.sidebar:
     st.markdown("### 👤 Viewing as")
     role = st.selectbox("Role", ["Sales Coordinator", "Factory", "Regional Sales Person", "Management", "Admin"])
     display_name = role
-    st.caption("Role-based login (Supabase Auth) replaces this switch in the next phase.")
+    st.caption("This will be role-based login in the live application.")
     st.divider()
     st.caption("Carob Technologies · Supabase-backed")
 
@@ -992,7 +992,7 @@ if "⚙️ Admin" in tab_map:
 # ---------------------------------------------------------
 st.markdown(f"""
 <div class="app-footer">
-    <span>BTP Order Tracking Portal</span>
+    <span>Order Tracking Portal</span>
     <span class="powered">Powered by Carob Technologies</span>
     <span>Viewing as: {role}</span>
 </div>
