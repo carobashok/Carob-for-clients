@@ -199,17 +199,6 @@ else:
         marker=dict(size=7, color="#F59E0B"),
     ))
 
-    # Show "Till Today" as a reference line if available
-    if till_today_total > 0:
-        fig.add_hline(
-            y=till_today_total,
-            line_dash="dash",
-            line_color="#EF4444",
-            annotation_text=f"Till Today: {int(till_today_total):,}",
-            annotation_position="top right",
-            annotation_font_color="#EF4444",
-        )
-
     fig.update_layout(
         xaxis_title="Year",
         yaxis_title="Total Registered Vehicles",
@@ -223,12 +212,6 @@ else:
     )
 
     st.plotly_chart(fig, use_container_width=True)
-
-    if till_today_total > 0:
-        st.caption(
-            "🔴 Dashed red line = cumulative 'Till Today' total (all years combined, not a single year's count). "
-            "This represents the current total stock on road."
-        )
 
 st.divider()
 
