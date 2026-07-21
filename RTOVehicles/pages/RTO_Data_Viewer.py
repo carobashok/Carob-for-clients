@@ -4,14 +4,15 @@ pages/RTO_Data_Viewer.py
 Viewer page for Vahan RTO vehicle registration data stored in Supabase.
 
 Two-level view driven by filter selections:
-  1. State selected (no RTO) → Maker × Vehicle Group pivot (state-wide totals)
-  2. RTO selected → Maker × Sub-Column pivot (4WIC/LMV/MMV/HMV/TOTAL)
+  1. State selected (no RTO) → trend chart + Maker × Vehicle Group pivot
+  2. RTO selected → trend chart + Maker × Sub-Column pivot
 
-Filters: State, Dimension (Maker/Vehicle Class/etc.), RTO, Category Group, Year
+Filters: State, Dimension, RTO, Category Group, Year
 """
 
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 from supabase import create_client
 
 st.set_page_config(page_title="RTO Data Viewer", page_icon="📊", layout="wide")
@@ -93,7 +94,6 @@ with fc4:
     selected_cat = st.selectbox("Category Group", ["(All)"] + list(cat_opts))
 
 with fc5:
-    # Compute year options based on state + RTO + dimension (but not year itself)
     year_source = df[df["dimension_name"] == selected_dim].copy()
     if selected_state != "(All States)":
         year_source = year_source[year_source["state"] == selected_state]
@@ -113,6 +113,11 @@ if selected_rto != "(All RTOs — State Summary)":
     view_df = view_df[view_df["rto"] == selected_rto]
 if selected_cat != "(All)":
     view_df = view_df[view_df["category_group"] == selected_cat]
+
+# Keep unfiltered-by-year copy for the trend chart
+trend_df = view_df.copy()
+
+# Apply year filter only for the pivot table below
 if selected_year != "(All Years)":
     view_df = view_df[view_df["year"] == selected_year]
 
@@ -121,16 +126,109 @@ if view_df.empty:
     st.stop()
 
 rto_selected = selected_rto != "(All RTOs — State Summary)"
+scope_label = selected_rto.split("-")[0].strip() if rto_selected else (
+    selected_state if selected_state != "(All States)" else "All States"
+)
 
 
 # ── Metrics row ───────────────────────────────────────────────────────────────
 
 totals_df = view_df[view_df["sub_column"].str.upper() == "TOTAL"]
+
+# Separate "Till Today" from annual totals for the metric card
+till_today_total = (
+    trend_df[
+        (trend_df["sub_column"].str.upper() == "TOTAL") &
+        (trend_df["year"].str.lower() == "till today")
+    ]["value"].sum()
+)
+
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("Total Vehicles", f"{int(totals_df['value'].sum()):,}")
-m2.metric("Unique Makers / Classes", view_df["dimension_value"].nunique())
+m1.metric("Total Vehicles (filtered view)", f"{int(totals_df['value'].sum()):,}")
+if till_today_total > 0:
+    m2.metric("📌 Till Today (cumulative)", f"{int(till_today_total):,}")
+else:
+    m2.metric("Unique Makers / Classes", view_df["dimension_value"].nunique())
 m3.metric("RTOs covered", view_df["rto"].nunique())
-m4.metric("Years", view_df["year"].nunique())
+m4.metric("Years in view", view_df["year"].nunique())
+
+st.divider()
+
+
+# ── Year-wise Trend Chart ─────────────────────────────────────────────────────
+
+st.subheader(f"📈 Year-wise Registration Trend — {scope_label}")
+
+# Build yearly totals from trend_df (ignores dimension/maker filter, ignores year filter)
+# Exclude 'Till Today' from the trend since it's cumulative, not a single year
+yearly_src = trend_df[
+    (trend_df["sub_column"].str.upper() == "TOTAL") &
+    (trend_df["year"].str.lower() != "till today")
+]
+
+yearly_totals = (
+    yearly_src.groupby("year", as_index=False)["value"]
+    .sum()
+    .rename(columns={"value": "Total Vehicles"})
+    .sort_values("year")
+)
+
+if yearly_totals.empty:
+    st.info("No year-wise data available for the current State/RTO selection.")
+else:
+    fig = go.Figure()
+
+    # Bars — absolute count per year
+    fig.add_trace(go.Bar(
+        x=yearly_totals["year"],
+        y=yearly_totals["Total Vehicles"],
+        name="Registered Vehicles",
+        marker_color="#2563EB",
+        opacity=0.75,
+        text=yearly_totals["Total Vehicles"].apply(lambda v: f"{int(v):,}"),
+        textposition="outside",
+    ))
+
+    # Line — trend overlay
+    fig.add_trace(go.Scatter(
+        x=yearly_totals["year"],
+        y=yearly_totals["Total Vehicles"],
+        name="Trend",
+        mode="lines+markers",
+        line=dict(color="#F59E0B", width=2.5),
+        marker=dict(size=7, color="#F59E0B"),
+    ))
+
+    # Show "Till Today" as a reference line if available
+    if till_today_total > 0:
+        fig.add_hline(
+            y=till_today_total,
+            line_dash="dash",
+            line_color="#EF4444",
+            annotation_text=f"Till Today: {int(till_today_total):,}",
+            annotation_position="top right",
+            annotation_font_color="#EF4444",
+        )
+
+    fig.update_layout(
+        xaxis_title="Year",
+        yaxis_title="Total Registered Vehicles",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        yaxis=dict(gridcolor="rgba(0,0,0,0.07)"),
+        xaxis=dict(type="category"),
+        margin=dict(t=40, b=40),
+        height=420,
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    if till_today_total > 0:
+        st.caption(
+            "🔴 Dashed red line = cumulative 'Till Today' total (all years combined, not a single year's count). "
+            "This represents the current total stock on road."
+        )
 
 st.divider()
 
@@ -138,99 +236,93 @@ st.divider()
 # ── VIEW 1: State-level — Maker × Vehicle Group pivot ─────────────────────────
 
 if not rto_selected:
-    st.subheader(f"{'State' if selected_state != '(All States)' else 'All States'} Summary — "
-                 f"{selected_dim} × Vehicle Group")
-    st.caption("Rows = Makers/Classes  |  Columns = Vehicle Category Groups  |  Values = Total registered vehicles  |  "
-               "Select an RTO above to drill into sub-column breakdown.")
+    st.subheader(f"{scope_label} Summary — {selected_dim} × Vehicle Group")
+    st.caption(
+        "Rows = Makers/Classes  |  Columns = Vehicle Category Groups  |  "
+        "Values = Total registered vehicles  |  "
+        "Select an RTO above to drill into sub-column breakdown."
+    )
 
     pivot_src = view_df[view_df["sub_column"].str.upper() == "TOTAL"]
 
     if pivot_src.empty:
         st.info("No TOTAL rows found for this filter combination.")
-        st.stop()
+    else:
+        pivot = (
+            pivot_src
+            .groupby(["dimension_value", "category_group"])["value"]
+            .sum()
+            .reset_index()
+            .pivot(index="dimension_value", columns="category_group", values="value")
+            .fillna(0)
+            .astype(int)
+        )
+        pivot.index.name = selected_dim
+        pivot["TOTAL"] = pivot.sum(axis=1)
+        pivot = pivot.sort_values("TOTAL", ascending=False)
+        cols = [c for c in pivot.columns if c != "TOTAL"] + ["TOTAL"]
+        pivot = pivot[cols]
 
-    pivot = (
-        pivot_src
-        .groupby(["dimension_value", "category_group"])["value"]
-        .sum()
-        .reset_index()
-        .pivot(index="dimension_value", columns="category_group", values="value")
-        .fillna(0)
-        .astype(int)
-    )
-    pivot.index.name = selected_dim
-
-    # Add row total, sort by it descending
-    pivot["TOTAL"] = pivot.sum(axis=1)
-    pivot = pivot.sort_values("TOTAL", ascending=False)
-
-    # Put TOTAL column last
-    cols = [c for c in pivot.columns if c != "TOTAL"] + ["TOTAL"]
-    pivot = pivot[cols]
-
-    st.dataframe(pivot, use_container_width=True)
-
-    csv = pivot.reset_index().to_csv(index=False).encode()
-    st.download_button("⬇️ Download as CSV", csv, "state_summary.csv", "text/csv")
+        st.dataframe(pivot, use_container_width=True)
+        csv = pivot.reset_index().to_csv(index=False).encode()
+        st.download_button("⬇️ Download as CSV", csv, "state_summary.csv", "text/csv")
 
 
 # ── VIEW 2: RTO-level — Maker × Sub-column pivot ─────────────────────────────
 
 else:
-    rto_label = selected_rto.split("-")[0].strip()
-    st.subheader(f"{rto_label} — {selected_dim} × Sub-Column Breakdown")
-    st.caption("Rows = Makers/Classes  |  Columns = Sub-types (e.g. 4WIC / LMV / MMV / HMV / TOTAL)  |  "
-               "Filter by Category Group above to narrow down.")
+    st.subheader(f"{scope_label} — {selected_dim} × Sub-Column Breakdown")
+    st.caption(
+        "Rows = Makers/Classes  |  Columns = Sub-types (e.g. 4WIC / LMV / MMV / HMV / TOTAL)  |  "
+        "Filter by Category Group above to narrow down."
+    )
 
-    # For RTO view, use ALL sub-columns (not just TOTAL) so user sees the full breakdown
     pivot_src = view_df.copy()
 
     if pivot_src.empty:
         st.info("No data found for this RTO with the current filters.")
-        st.stop()
-
-    pivot = (
-        pivot_src
-        .groupby(["dimension_value", "category_group", "sub_column"])["value"]
-        .sum()
-        .reset_index()
-        .pivot_table(
-            index=["dimension_value", "category_group"],
-            columns="sub_column",
-            values="value",
-            aggfunc="sum",
-            fill_value=0,
+    else:
+        pivot = (
+            pivot_src
+            .groupby(["dimension_value", "category_group", "sub_column"])["value"]
+            .sum()
+            .reset_index()
+            .pivot_table(
+                index=["dimension_value", "category_group"],
+                columns="sub_column",
+                values="value",
+                aggfunc="sum",
+                fill_value=0,
+            )
+            .astype(int)
         )
-        .astype(int)
-    )
-    pivot.index.names = [selected_dim, "Category Group"]
+        pivot.index.names = [selected_dim, "Category Group"]
+        sub_cols = [c for c in pivot.columns if c != "TOTAL"]
+        if "TOTAL" in pivot.columns:
+            pivot = pivot[sub_cols + ["TOTAL"]]
+        sort_col = "TOTAL" if "TOTAL" in pivot.columns else (pivot.columns[0] if len(pivot.columns) else None)
+        if sort_col:
+            pivot = pivot.sort_values(sort_col, ascending=False)
 
-    # Put TOTAL last
-    sub_cols = [c for c in pivot.columns if c != "TOTAL"]
-    if "TOTAL" in pivot.columns:
-        pivot = pivot[sub_cols + ["TOTAL"]]
-
-    # Sort by TOTAL descending if present, else by first sub-col
-    sort_col = "TOTAL" if "TOTAL" in pivot.columns else (pivot.columns[0] if len(pivot.columns) else None)
-    if sort_col:
-        pivot = pivot.sort_values(sort_col, ascending=False)
-
-    st.dataframe(pivot, use_container_width=True)
-
-    csv = pivot.reset_index().to_csv(index=False).encode()
-    st.download_button("⬇️ Download as CSV", csv, f"{rto_label}_breakdown.csv", "text/csv")
+        st.dataframe(pivot, use_container_width=True)
+        csv = pivot.reset_index().to_csv(index=False).encode()
+        st.download_button("⬇️ Download as CSV", csv, f"{scope_label}_breakdown.csv", "text/csv")
 
 
 # ── Detailed raw rows (collapsible) ──────────────────────────────────────────
 
 with st.expander("📋 Show raw data rows"):
-    display_df = view_df[["state","rto","year","category_group","dimension_value","sub_column","value"]].rename(columns={
+    display_df = view_df[["state", "rto", "year", "category_group",
+                           "dimension_value", "sub_column", "value"]].rename(columns={
         "state": "State", "rto": "RTO", "year": "Year",
         "category_group": "Category Group", "dimension_value": selected_dim,
         "sub_column": "Sub Column", "value": "Value",
     })
-    st.dataframe(display_df.sort_values(["Year", "Category Group", selected_dim]),
-                 use_container_width=True, hide_index=True)
+    st.dataframe(
+        display_df.sort_values(["Year", "Category Group", selected_dim]),
+        use_container_width=True, hide_index=True,
+    )
     st.caption(f"{len(display_df):,} rows for current filter selection.")
     raw_csv = display_df.to_csv(index=False).encode()
-    st.download_button("⬇️ Download raw rows", raw_csv, "rto_raw_data.csv", "text/csv", key="raw_dl")
+    st.download_button("⬇️ Download raw rows", raw_csv, "rto_raw_data.csv",
+                       "text/csv", key="raw_dl")
